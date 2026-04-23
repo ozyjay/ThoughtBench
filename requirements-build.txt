@@ -1,0 +1,4 @@
+-r requirements.txt
+--extra-index-url https://pypi.org/simple
+pyinstaller
+pillow

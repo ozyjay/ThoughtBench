@@ -1,0 +1,12 @@
+--index-url https://download.pytorch.org/whl/cu118
+--extra-index-url https://pypi.org/simple
+torch==2.6.0
+torchvision==0.21.0
+torchaudio==2.6.0
+transformers
+accelerate
+bitsandbytes
+sentencepiece
+sv_ttk
+nvidia-ml-py
+markdown-it-py
