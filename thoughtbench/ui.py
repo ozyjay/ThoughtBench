@@ -181,6 +181,10 @@ class ThoughtbenchApp(
         self._active_thinking_block = False
         self.log_dir: Path | None = None
         self.log_path: Path | None = None
+        self.knowledge_index = None
+        self.knowledge_index_stale = False
+        self.last_retrieved_knowledge = []
+        self._pending_generation_messages: list[dict] | None = None
         self._system_prompt_save_job: str | None = None
         self._system_prompt_history: list[dict] = []
         self._system_prompt_history_labels: list[str] = []
@@ -396,6 +400,15 @@ class ThoughtbenchApp(
         self.actions_menu.add_command(
             label="Reset Generation Settings",
             command=self._reset_generation_settings,
+        )
+        self.actions_menu.add_separator()
+        self.actions_menu.add_command(
+            label="Open Knowledge Folder",
+            command=self._on_open_knowledge_folder,
+        )
+        self.actions_menu.add_command(
+            label="Rebuild Knowledge Index",
+            command=self._on_rebuild_knowledge_index,
         )
         self.actions_btn = ttk.Menubutton(
             toolbar,

@@ -11,3 +11,5 @@ build/
 *.pt
 *.bin
 *.safetensors
+tmp*/
+tests/tmp_sandbox_check/

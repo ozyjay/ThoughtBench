@@ -1,6 +1,7 @@
 """Conversation, settings, and transcript persistence mixin."""
 
 import json
+import os
 import re
 import tkinter as tk
 from datetime import datetime
@@ -13,6 +14,14 @@ from .config import (
     SYSTEM_PROMPT_HISTORY_LIMIT,
     get_model_option,
     valid_model_id_or_default,
+)
+from .knowledge import (
+    build_knowledge_index,
+    ensure_knowledge_dirs,
+    format_source_summary,
+    index_is_stale,
+    knowledge_folder,
+    load_knowledge_index,
 )
 from .storage import (
     conversation_path,
@@ -35,6 +44,7 @@ class PersistenceMixin:
 
         self._load_saved_system_prompt()
         self._load_system_prompt_history()
+        self._load_knowledge_index_for_profile()
         self._save_system_prompt(remember_previous=False)
         self._start_new_log()
 
@@ -145,6 +155,7 @@ class PersistenceMixin:
     def _ensure_profile_dir(self, profile_dir: Path) -> bool:
         try:
             profile_dir.mkdir(parents=True, exist_ok=True)
+            ensure_knowledge_dirs(profile_dir)
         except OSError as exc:
             messagebox.showerror(
                 "Behaviour Profile",
@@ -169,6 +180,73 @@ class PersistenceMixin:
                 return False
 
         return True
+
+    def _load_knowledge_index_for_profile(self):
+        self.knowledge_index = None
+        self.knowledge_index_stale = False
+        if not self.log_dir:
+            return
+
+        try:
+            ensure_knowledge_dirs(self.log_dir)
+            self.knowledge_index = load_knowledge_index(self.log_dir)
+            self.knowledge_index_stale = index_is_stale(self.log_dir, self.knowledge_index)
+        except OSError as exc:
+            self.knowledge_index = None
+            self.knowledge_index_stale = False
+            self.status_var.set(f"Knowledge unavailable: {exc}")
+
+    def _knowledge_status_text(self) -> str:
+        index = getattr(self, "knowledge_index", None)
+        if index is None or not getattr(index, "chunks", None):
+            return "Knowledge index empty. Add .md or .txt files and rebuild."
+        stale = " stale" if getattr(self, "knowledge_index_stale", False) else ""
+        return f"Knowledge index{stale}: {len(index.chunks)} chunks."
+
+    def _on_open_knowledge_folder(self):
+        if not self.log_dir:
+            self.status_var.set("No active profile folder.")
+            return
+
+        try:
+            ensure_knowledge_dirs(self.log_dir)
+            os.startfile(knowledge_folder(self.log_dir))
+        except OSError as exc:
+            messagebox.showerror(
+                "Knowledge Folder",
+                f"Could not open knowledge folder:\n{knowledge_folder(self.log_dir)}\n\n{exc}",
+                parent=self.root,
+            )
+
+    def _on_rebuild_knowledge_index(self):
+        if not self.log_dir:
+            self.status_var.set("No active profile folder.")
+            return
+        if self.generating or self.updating_behaviour:
+            self.status_var.set("Stop generation or behaviour update before rebuilding knowledge.")
+            return
+
+        try:
+            self.knowledge_index = build_knowledge_index(self.log_dir)
+            self.knowledge_index_stale = False
+        except OSError as exc:
+            self.status_var.set(f"Knowledge rebuild failed: {exc}")
+            self._append_log_entry("Knowledge Rebuild Error", str(exc))
+            return
+
+        summary = self._knowledge_status_text()
+        self.status_var.set(summary)
+        self._append_log_entry("Knowledge Rebuild", summary)
+        self._schedule_token_usage_update()
+
+    def _show_retrieved_knowledge_sources(self):
+        results = getattr(self, "last_retrieved_knowledge", [])
+        if not results:
+            return
+        summary = format_source_summary(results)
+        self.status_var.set(summary)
+        self._append_chat("System: ", "system_msg")
+        self._append_chat(f"{summary}\n\n", "system_msg")
 
     def _load_saved_system_prompt(self):
         saved_prompt = None
@@ -510,6 +588,7 @@ class PersistenceMixin:
             return None
 
         self._save_active_profile_dir(log_dir)
+        self._ensure_profile_dir(log_dir)
         return log_dir
 
     def _read_configured_log_dir(self) -> Path | None:
@@ -608,6 +687,7 @@ class PersistenceMixin:
         self.log_dir = profile_dir
         self.log_path = None
         self._save_active_profile_dir(profile_dir)
+        self._ensure_profile_dir(profile_dir)
 
         self._cancel_stream_render_jobs()
         self._stream_response_text = ""
@@ -627,6 +707,7 @@ class PersistenceMixin:
 
         self._load_saved_system_prompt()
         self._load_system_prompt_history()
+        self._load_knowledge_index_for_profile()
         self._load_saved_conversation()
         self._start_new_log()
         self._start_diagnostics_log()

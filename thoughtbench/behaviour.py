@@ -6,6 +6,7 @@ import threading
 import traceback
 import tkinter as tk
 
+from .knowledge import format_retrieved_context, format_source_summary
 from .model_loading import model_input_device
 from .model import split_model_response
 from .config import get_model_option
@@ -308,7 +309,39 @@ class BehaviourMixin:
         self._highlight_user_input_commands()
         return "break"
 
-    def _build_messages(self) -> list[dict]:
+    def _knowledge_context_for_latest_user_message(self, log_retrieval: bool = True) -> str:
+        self.last_retrieved_knowledge = []
+        knowledge_index = getattr(self, "knowledge_index", None)
+        if knowledge_index is None or not getattr(knowledge_index, "chunks", None):
+            return ""
+
+        latest_user_message = None
+        for message in reversed(self.messages):
+            if message.get("role") == "user":
+                latest_user_message = message.get("content")
+                break
+        if not isinstance(latest_user_message, str) or not latest_user_message.strip():
+            return ""
+
+        results = knowledge_index.retrieve(latest_user_message)
+        self.last_retrieved_knowledge = results
+        if results and log_retrieval:
+            self._append_log_entry(
+                "Knowledge",
+                format_source_summary(results),
+            )
+        return format_retrieved_context(results)
+
+    def _build_messages(self, log_knowledge: bool = True) -> list[dict]:
         self._save_system_prompt()
-        return [{"role": "system", "content": self._get_system_prompt()}] + self.messages
+        messages = [{"role": "system", "content": self._get_system_prompt()}] + list(self.messages)
+        knowledge_context = self._knowledge_context_for_latest_user_message(log_knowledge)
+        if not knowledge_context:
+            return messages
+
+        insert_at = len(messages)
+        if len(messages) > 1 and messages[-1].get("role") == "user":
+            insert_at = len(messages) - 1
+        messages.insert(insert_at, {"role": "system", "content": knowledge_context})
+        return messages
 

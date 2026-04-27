@@ -116,7 +116,7 @@ class RuntimeMixin:
 
         self._token_update_revision += 1
         revision = self._token_update_revision
-        messages = [{"role": "system", "content": self._get_system_prompt()}] + list(self.messages)
+        messages = self._build_messages(log_knowledge=False)
         live_response_text = self._stream_response_text if self.generating else ""
         enable_thinking = bool(self.think_var.get()) and get_model_option(
             getattr(self, "selected_model_id", None)
@@ -442,6 +442,7 @@ class RuntimeMixin:
         self._start_generate()
 
     def _start_generate(self):
+        self._pending_generation_messages = self._build_messages()
         self.generating = True
         self._stop_event.clear()
         self._refresh_send_button_state()
@@ -450,6 +451,7 @@ class RuntimeMixin:
         self.progress_bar.configure(mode="indeterminate")
         self.progress_bar.start(50)
         self._start_elapsed_timer()
+        self._show_retrieved_knowledge_sources()
         self._append_chat(self._assistant_label(), "assistant")
         self._append_generation_settings_log(self.think_var.get())
         self._cancel_stream_render_jobs()
@@ -474,7 +476,8 @@ class RuntimeMixin:
         try:
             from transformers import TextIteratorStreamer
 
-            full_messages = self._build_messages()
+            full_messages = self._pending_generation_messages or self._build_messages()
+            self._pending_generation_messages = None
             model_option = get_model_option(getattr(self, "selected_model_id", None))
             enable_thinking = bool(self.think_var.get()) and model_option.supports_thinking
 
