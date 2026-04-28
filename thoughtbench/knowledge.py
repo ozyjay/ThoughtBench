@@ -283,3 +283,17 @@ def format_source_summary(results: list[KnowledgeResult]) -> str:
         return "No knowledge snippets retrieved."
     labels = [result.chunk.chunk_id for result in results]
     return "Knowledge: " + ", ".join(labels)
+
+
+def format_diagnostic_summary(results: list[KnowledgeResult]) -> str:
+    if not results:
+        return "No knowledge snippets retrieved.\n"
+
+    parts = ["Retrieved knowledge snippets:\n"]
+    for result in results:
+        snippet = result.chunk.text.strip()
+        parts.append(f"[{result.chunk.chunk_id}] score={result.score:.3f}\n")
+        if snippet:
+            parts.append(f"{snippet}\n")
+        parts.append("\n")
+    return "".join(parts)

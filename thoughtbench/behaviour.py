@@ -6,7 +6,7 @@ import threading
 import traceback
 import tkinter as tk
 
-from .knowledge import format_retrieved_context, format_source_summary
+from .knowledge import format_diagnostic_summary, format_retrieved_context, format_source_summary
 from .model_loading import model_input_device
 from .model import split_model_response
 from .config import get_model_option
@@ -330,6 +330,8 @@ class BehaviourMixin:
                 "Knowledge",
                 format_source_summary(results),
             )
+            if hasattr(self, "_capture_diagnostic"):
+                self._capture_diagnostic(format_diagnostic_summary(results), "diagnostic_meta")
         return format_retrieved_context(results)
 
     def _build_messages(self, log_knowledge: bool = True) -> list[dict]:

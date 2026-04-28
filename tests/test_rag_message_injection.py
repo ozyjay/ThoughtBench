@@ -27,12 +27,16 @@ class FakeApp(BehaviourMixin):
         )
         self.last_retrieved_knowledge = []
         self.logged = []
+        self.diagnostics = []
 
     def _save_system_prompt(self):
         self.saved_prompt = True
 
     def _append_log_entry(self, role, content):
         self.logged.append((role, content))
+
+    def _capture_diagnostic(self, text, tag):
+        self.diagnostics.append((text, tag))
 
 
 class RagMessageInjectionTests(unittest.TestCase):
@@ -49,6 +53,16 @@ class RagMessageInjectionTests(unittest.TestCase):
         self.assertEqual(app.messages, [{"role": "user", "content": "Where is HF_HOME configured?"}])
         self.assertEqual(app.last_retrieved_knowledge[0].chunk.source, "setup.md")
         self.assertEqual(app.logged[0][0], "Knowledge")
+
+    def test_build_messages_writes_retrieved_knowledge_details_to_diagnostics(self):
+        app = FakeApp()
+
+        app._build_messages()
+
+        self.assertEqual(app.diagnostics[0][1], "diagnostic_meta")
+        self.assertIn("Retrieved knowledge snippets", app.diagnostics[0][0])
+        self.assertIn("[setup.md#0001]", app.diagnostics[0][0])
+        self.assertIn("HF_HOME controls the Hugging Face cache location.", app.diagnostics[0][0])
 
 
 if __name__ == "__main__":
