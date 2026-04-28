@@ -72,8 +72,10 @@ To launch Thoughtbench after a successful setup:
 The old `scripts\Setup-Gemma4.ps1` path remains as a compatibility wrapper, but
 new documentation and examples use `Setup-Thoughtbench.ps1`.
 
-The assistant cannot install NVIDIA drivers or install Python globally. It will
-tell you when one of those manual steps is required.
+The assistant cannot install NVIDIA drivers or install Python globally. This
+project expects Python 3.12 to be managed with Python Manager:
+https://github.com/python/pymanager. The setup assistant will tell you when a
+manual Python or driver step is required.
 
 ## Hugging Face model location
 
@@ -104,7 +106,7 @@ Hugging Face cache location when it starts.
 ## Manual developer setup
 
 ```powershell
-# Create a venv with Python 3.12 (using py launcher)
+# Create a venv with Python 3.12 using Python Manager's py launcher
 py -3.12 -m venv .venv
 .venv\Scripts\activate
 
@@ -124,8 +126,8 @@ python app.py
 On first launch, the app asks where to create `.thoughtbench`. That folder is the
 first Behaviour Profile. A Behaviour Profile stores its own saved Assistant
 Behaviour (`system_prompt.md`), prompt history, current conversation, chat logs,
-and diagnostics logs. The model weights are not stored in this repo; Hugging
-Face downloads and caches them on the machine.
+diagnostics logs, and optional knowledge files. The model weights are not stored
+in this repo; Hugging Face downloads and caches them on the machine.
 
 Use the `Show Behaviour` toolbar button to show the Assistant Behaviour panel.
 Inside that panel, use the `Active profile` selector to switch profiles and the
@@ -149,10 +151,22 @@ The desktop app also saves the current profile's conversation in:
 .thoughtbench\conversation.json
 ```
 
+Knowledge files for the current profile live in:
+
+```text
+.thoughtbench\knowledge\
+```
+
+The generated retrieval index lives beside them:
+
+```text
+.thoughtbench\knowledge_index\
+```
+
 When you reopen the app, the active profile's previous conversation is restored.
 Use `Clear Conversation` to start fresh in the current profile. This resets that
 profile's `conversation.json` to an empty conversation but does not delete
-transcript or diagnostics log files.
+transcript, diagnostics log, knowledge, or knowledge index files.
 
 Settings that remember the active and recent profiles are stored outside the
 profile folders:
@@ -282,6 +296,7 @@ text.
 The Assistant Behaviour field is the app's system prompt. It is a good place for
 stable instructions: tone, role, response style, formatting preferences,
 decision rules, and small reference notes that should apply to every reply.
+Everything in Assistant Behaviour is sent to the model on every message.
 
 You can use it in a similar way to GPT Builder instructions by keeping two
 sections in the prompt:
@@ -297,35 +312,60 @@ sections in the prompt:
 - Only include material that is useful often enough to send every turn
 ```
 
-The important difference is that this app does not currently retrieve snippets
-from separate knowledge files on demand. Everything in Assistant Behaviour is
-sent to the model on every message. Large knowledge packs therefore consume
-context, reduce room for conversation, and can slow generation.
+For larger reference material, use profile knowledge files instead of pasting the
+content into Assistant Behaviour. Each Behaviour Profile has a managed
+`knowledge\` folder that supports `.md` and `.txt` files. Use `Actions` >
+`Open Knowledge Folder` to open it, add or edit files there, then use `Actions` >
+`Rebuild Knowledge Index`.
+
+Thoughtbench uses a local BM25 keyword index for the first version of retrieval.
+For each desktop chat message, it searches the active profile's knowledge index,
+injects the most relevant snippets as temporary context, and shows a compact
+`Knowledge: file.md#0001` source note when snippets are used. Retrieved snippets
+are not saved into `conversation.json`; only the normal user and assistant
+messages are persisted.
+
+This first version is best for exact project knowledge such as command names,
+file paths, settings, UI labels, policy terms, and error strings. Keep semantic
+or always-needed behaviour rules in Assistant Behaviour.
 
 Use the bottom stats bar to tune the prompt. The `input` token count includes
-Assistant Behaviour, restored conversation, the current user message, and chat
-template overhead. The reply budget comes from `Max tokens`. A practical target
-is to keep total usage below about 80% of the model context window for normal
-chat, and treat 95% as the danger zone.
+Assistant Behaviour, retrieved knowledge snippets, restored conversation, the
+current user message, and chat template overhead. The reply budget comes from
+`Max tokens`. A practical target is to keep total usage below about 80% of the
+model context window for normal chat, and treat 95% as the danger zone.
 
 As a starting point:
 
 - Keep core instructions around 500-2,000 tokens.
-- Add compact knowledge only when it is needed across many turns.
-- Keep the combined instructions plus always-on knowledge around 2,000-4,000
-  tokens if the loaded model reports an 8,192 token context window.
+- Keep always-on knowledge in Assistant Behaviour only when it is needed across
+  many turns.
+- Put larger project notes, policies, examples, and references in `.md` or
+  `.txt` files under `knowledge\`, then rebuild the index after edits.
 - Lower `Max tokens` when you want more room for prompt or conversation.
 - Use `Clear Conversation` when an old restored conversation is taking context
   away from a new task.
 
 Behaviour Profiles are useful for different agent setups. For example, create
 one profile for coding, another for writing, and another for a project-specific
-assistant with its own compact knowledge section. Each profile keeps its own
-Assistant Behaviour, history, conversation, transcripts, and diagnostics.
+assistant with its own knowledge folder. Each profile keeps its own Assistant
+Behaviour, history, conversation, transcripts, diagnostics, knowledge files, and
+knowledge index.
 
 To experiment safely, edit Assistant Behaviour, watch the token stats update,
 then send a short test prompt. If a change makes the assistant worse, use the
 prompt history selector to restore an earlier version.
+
+To try knowledge retrieval quickly:
+
+1. Open the desktop app and choose a model.
+2. Use `Actions` > `Open Knowledge Folder`.
+3. Add a small `.md` file such as `project-notes.md`.
+4. Use `Actions` > `Rebuild Knowledge Index`.
+5. Ask a question that uses words from the file.
+
+If retrieval finds a match, the chat/status area shows the injected source chunk
+before the assistant response.
 
 ### Single-shot generation
 
