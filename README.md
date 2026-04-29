@@ -177,9 +177,9 @@ Behaviour (`system_prompt.md`), prompt history, current conversation, chat logs,
 diagnostics logs, and optional knowledge files. The model weights are not stored
 in this repo; Hugging Face downloads and caches them on the machine.
 
-Use the `Show Behaviour` toolbar button to show the Assistant Behaviour panel.
-Inside that panel, use the `Active profile` selector to switch profiles and the
-`Profile Actions` menu to create a new profile or add an existing profile
+Use the left sidebar to find the main app areas. `Behaviour` contains the
+Assistant Behaviour editor and prompt history. `Profiles` contains the active
+profile selector plus actions to create a new profile or add an existing profile
 folder. Switching profiles saves the current profile and restores the selected
 profile's prompt and conversation.
 
@@ -308,10 +308,8 @@ time, and load time.
 
 The desktop app can keep multiple Behaviour Profiles. Each profile has its own
 Assistant Behaviour, prompt history, restored conversation, transcripts, and
-diagnostics. Use the `Show Behaviour` toolbar button to open the panel, then
-switch profiles from the `Active profile` selector above the prompt editor.
-`Profile Actions` creates a new profile from the current prompt or adds an
-existing profile folder.
+diagnostics. Use the sidebar `Profiles` section to switch profiles, create a new
+profile from the current prompt, or add an existing profile folder.
 
 The bottom stats bar also shows token usage after the model has loaded. The
 token count includes the current Assistant Behaviour, restored conversation, and
@@ -362,20 +360,41 @@ sections in the prompt:
 
 For larger reference material, use profile knowledge files instead of pasting the
 content into Assistant Behaviour. Each Behaviour Profile has a managed
-`knowledge\` folder that supports `.md` and `.txt` files. Use `Actions` >
-`Open Knowledge Folder` to open it, add or edit files there, then use `Actions` >
-`Rebuild Knowledge Index`.
+`knowledge\` folder that supports `.md` and `.txt` files. Use the sidebar
+`Knowledge` section to open the folder, add or edit files there, then rebuild
+the index.
 
 Thoughtbench uses a local BM25 keyword index for the first version of retrieval.
 For each desktop chat message, it searches the active profile's knowledge index,
 injects the most relevant snippets as temporary context, and shows a compact
-`Knowledge: file.md#0001` source note when snippets are used. Retrieved snippets
-are not saved into `conversation.json`; only the normal user and assistant
-messages are persisted.
+`Knowledge: file.md#0001` source note when snippets are used. The desktop app
+also has a collapsible `Retrieved Knowledge` panel with source IDs, BM25 scores,
+matched terms, and snippet previews. Retrieved snippets are not saved into
+`conversation.json`; only the normal user and assistant messages are persisted.
 
 This first version is best for exact project knowledge such as command names,
 file paths, settings, UI labels, policy terms, and error strings. Keep semantic
-or always-needed behaviour rules in Assistant Behaviour.
+or always-needed behaviour rules in Assistant Behaviour. BM25 remains the
+exact-match anchor; vector or hybrid retrieval is future work.
+
+Retrieval uses per-profile settings saved in:
+
+```text
+.thoughtbench\knowledge_settings.json
+```
+
+Use `Knowledge` > `Knowledge Settings...` to tune:
+
+- `top_k`
+- `context_char_budget`
+- `chunk_size`
+- `chunk_overlap`
+- `minimum_score`
+- `minimum_matched_terms`
+
+Changing chunk settings or editing knowledge files makes the index stale. If the
+app detects this before retrieval, it shows `Knowledge index is stale - rebuild
+recommended.` and skips old snippet injection until you rebuild the index.
 
 Use the bottom stats bar to tune the prompt. The `input` token count includes
 Assistant Behaviour, retrieved knowledge snippets, restored conversation, the
@@ -407,13 +426,14 @@ prompt history selector to restore an earlier version.
 To try knowledge retrieval quickly:
 
 1. Open the desktop app and choose a model.
-2. Use `Actions` > `Open Knowledge Folder`.
+2. Open the sidebar `Knowledge` section and choose `Open Knowledge Folder`.
 3. Add a small `.md` file such as `project-notes.md`.
-4. Use `Actions` > `Rebuild Knowledge Index`.
+4. Use `Rebuild Knowledge Index`.
 5. Ask a question that uses words from the file.
 
 If retrieval finds a match, the chat/status area shows the injected source chunk
-before the assistant response.
+before the assistant response. Expand `Retrieved Knowledge` to inspect the score,
+matched terms, source, and snippet preview.
 
 ## Tests
 
@@ -604,9 +624,12 @@ installed under your local programs folder or another explicit `-InstallRoot`.
 
 ## Diagnostics
 
-Use `Actions` > `Show Diagnostics` to show or hide captured stdout/stderr output.
-Diagnostics are captured even while the pane is hidden and are saved beside the
-current profile's chat logs:
+Use the sidebar `Diagnostics` section to inspect explicit app diagnostics and
+captured stderr errors. Routine stdout, such as model loading or download
+progress printed by libraries, continues to go to the terminal and is not
+mirrored into the in-app Diagnostics section. Diagnostics are captured even
+while the section is not selected and are saved beside the current profile's
+chat logs:
 
 ```text
 .thoughtbench\diagnostics_YYYYMMDD_HHMMSS.log

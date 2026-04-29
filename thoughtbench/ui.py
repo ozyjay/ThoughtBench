@@ -5,6 +5,7 @@ import sys
 import threading
 import tkinter as tk
 import tkinter.font as tkfont
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from tkinter import scrolledtext, ttk
@@ -21,12 +22,42 @@ from .config import (
     valid_model_id_or_default,
 )
 from .diagnostics_mixin import DiagnosticsMixin
+from .knowledge import DEFAULT_KNOWLEDGE_SETTINGS
 from .persistence import PersistenceMixin
 from .resources import _resource_path
 from .runtime import RuntimeMixin
 from .stats import StatsMonitor
 from .markdown import StreamingMarkdownState
 from .streaming import StreamingDisplayMixin
+
+
+EXPECTED_SECTION_IDS = (
+    "chat",
+    "behaviour",
+    "profiles",
+    "knowledge",
+    "diagnostics",
+    "settings",
+)
+DEFAULT_SECTION_ID = "chat"
+
+
+@dataclass(frozen=True)
+class SidebarSection:
+    section_id: str
+    label: str
+    builder_name: str
+
+
+def build_section_registry() -> tuple[SidebarSection, ...]:
+    return (
+        SidebarSection("chat", "Chat", "_build_chat_section"),
+        SidebarSection("behaviour", "Behaviour", "_build_behaviour_section"),
+        SidebarSection("profiles", "Profiles", "_build_profiles_section"),
+        SidebarSection("knowledge", "Knowledge", "_build_knowledge_section"),
+        SidebarSection("diagnostics", "Diagnostics", "_build_diagnostics_section"),
+        SidebarSection("settings", "Settings", "_build_settings_section"),
+    )
 
 
 class CircularProgressIndicator:
@@ -183,7 +214,9 @@ class ThoughtbenchApp(
         self.log_path: Path | None = None
         self.knowledge_index = None
         self.knowledge_index_stale = False
+        self.knowledge_settings = DEFAULT_KNOWLEDGE_SETTINGS
         self.last_retrieved_knowledge = []
+        self._retrieved_knowledge_visible = False
         self._pending_generation_messages: list[dict] | None = None
         self._system_prompt_save_job: str | None = None
         self._system_prompt_history: list[dict] = []
@@ -204,6 +237,7 @@ class ThoughtbenchApp(
         self._stdout_original = sys.stdout
         self._stderr_original = sys.stderr
         self._diagnostics_redirected = False
+        self._suppress_stream_diagnostics = False
         self.token_usage_var = tk.StringVar(value="Tokens: loading")
         self._token_prompt_tokens = 0
         self._token_reserved_tokens = 0
@@ -284,21 +318,20 @@ class ThoughtbenchApp(
             pass
 
     def _build_ui(self):
-        # --- Header ---
-        header = ttk.Frame(self.root, padding=(14, 12), style="Header.TFrame")
-        header.pack(fill=tk.X)
+        self.status_var = tk.StringVar(value="Loading model...")
+        self.progress_var = tk.DoubleVar(value=0)
+        self.stats_var = tk.StringVar(value="")
+        self.context_profile_var = tk.StringVar(value="Profile: No profiles")
+        self.context_model_var = tk.StringVar(value="Model: loading")
+        self.context_thinking_var = tk.StringVar(value="Thinking: off")
+        self.context_knowledge_var = tk.StringVar(value="Knowledge: unknown")
 
-        toolbar = ttk.Frame(header, style="Header.TFrame")
-        toolbar.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.section_registry = build_section_registry()
+        self.sidebar_buttons: dict[str, ttk.Button] = {}
+        self.secondary_frames: dict[str, ttk.Frame] = {}
+        self.active_section_id = DEFAULT_SECTION_ID
 
-        # Theme toggle
-        self.theme_btn = ttk.Button(
-            toolbar, text="Light", width=8, command=self._toggle_theme
-        )
-        self.theme_btn.pack(side=tk.LEFT, padx=(0, 8))
-
-        # Font family
-        ttk.Label(toolbar, text="Font", style="Toolbar.TLabel").pack(side=tk.LEFT)
+        # Font options are built before the Settings section creates controls.
         all_system = {f for f in tkfont.families() if not f.startswith("@")}
         coding_fonts = [
             "Cascadia Code", "Cascadia Mono",
@@ -348,170 +381,306 @@ class ThoughtbenchApp(
             if preferred in available:
                 self.font_family.set(preferred)
                 break
-        font_combo = ttk.Combobox(
-            toolbar,
-            textvariable=self.font_family,
-            values=available,
-            width=20,
-            state="readonly",
-        )
-        font_combo.pack(side=tk.LEFT, padx=(6, 10))
-        font_combo.bind("<<ComboboxSelected>>", lambda _: self._apply_fonts())
 
-        # Font size
-        ttk.Label(toolbar, text="Size", style="Toolbar.TLabel").pack(side=tk.LEFT)
-        size_spin = ttk.Spinbox(
-            toolbar,
-            from_=8,
-            to=24,
-            increment=1,
-            textvariable=self.font_size,
-            width=3,
-            command=self._apply_fonts,
-        )
-        size_spin.pack(side=tk.LEFT, padx=(6, 10))
+        status_frame = ttk.Frame(self.root, padding=(12, 6), style="Status.TFrame")
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM)
 
-        # Thinking toggle
+        ttk.Label(
+            status_frame,
+            textvariable=self.status_var,
+            anchor=tk.W,
+            style="Status.TLabel",
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.progress_bar = CircularProgressIndicator(
+            status_frame,
+            variable=self.progress_var,
+            maximum=100,
+            size=22,
+        )
+        self.progress_bar.pack(side=tk.LEFT, padx=(0, 10))
+        self._status_progress_visible = True
+
+        self.elapsed_var = tk.StringVar(value="")
+        self.elapsed_label = ttk.Label(
+            status_frame,
+            textvariable=self.elapsed_var,
+            anchor=tk.E,
+            style="Status.TLabel",
+        )
+        self.elapsed_label.pack(side=tk.RIGHT)
+
+        self.stats_bar = ttk.Frame(
+            self.root,
+            padding=(12, 3),
+            style="Status.TFrame",
+        )
+        self.stats_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        self.stats_label = ttk.Label(
+            self.stats_bar,
+            textvariable=self.stats_var,
+            anchor=tk.W,
+            style="Stats.TLabel",
+        )
+        self.stats_label.pack(side=tk.LEFT)
+        ttk.Label(
+            self.stats_bar,
+            text="  |  ",
+            style="Stats.TLabel",
+        ).pack(side=tk.LEFT)
+        self.token_stats_label = ttk.Label(
+            self.stats_bar,
+            textvariable=self.token_usage_var,
+            anchor=tk.W,
+            style="Stats.TLabel",
+        )
+        self.token_stats_label.pack(side=tk.LEFT)
+
+        app_body = ttk.Frame(self.root, style="App.TFrame")
+        app_body.pack(fill=tk.BOTH, expand=True)
+
+        self.sidebar_frame = ttk.Frame(app_body, padding=(10, 12), style="Sidebar.TFrame")
+        self.sidebar_frame.pack(side=tk.LEFT, fill=tk.Y)
+        ttk.Label(
+            self.sidebar_frame,
+            text=APP_NAME,
+            style="SidebarTitle.TLabel",
+        ).pack(anchor=tk.W, pady=(0, 12))
+        for section in self.section_registry:
+            button = ttk.Button(
+                self.sidebar_frame,
+                text=section.label,
+                command=lambda section_id=section.section_id: self._select_sidebar_section(section_id),
+            )
+            button.pack(fill=tk.X, pady=(0, 6))
+            self.sidebar_buttons[section.section_id] = button
+
+        self.workspace_pane = ttk.PanedWindow(app_body, orient=tk.HORIZONTAL)
+        self.workspace_pane.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.main_workspace = ttk.Frame(self.workspace_pane, padding=(12, 10), style="App.TFrame")
+        self.secondary_workspace = ttk.Frame(self.workspace_pane, padding=(0, 10, 12, 10), style="App.TFrame")
+        self.workspace_pane.add(self.main_workspace, weight=4)
+        self.workspace_pane.add(self.secondary_workspace, weight=1)
+
+        self._build_context_strip()
+        self._build_chat_workspace()
+        self._build_secondary_sections()
+        self._select_sidebar_section(DEFAULT_SECTION_ID)
+
+    def _build_context_strip(self):
+        self.context_strip = ttk.Frame(self.main_workspace, padding=(10, 7), style="Panel.TFrame")
+        self.context_strip.pack(fill=tk.X, pady=(0, 8))
+
+        for variable in (
+            self.context_model_var,
+            self.context_profile_var,
+            self.context_thinking_var,
+            self.context_knowledge_var,
+        ):
+            ttk.Label(
+                self.context_strip,
+                textvariable=variable,
+                style="Stats.TLabel",
+            ).pack(side=tk.LEFT, padx=(0, 14))
+
+        ttk.Button(
+            self.context_strip,
+            text="Copy Latest",
+            command=self._copy_latest_response,
+        ).pack(side=tk.RIGHT)
+
+    def _build_chat_workspace(self):
+        self.chat_pane = ttk.PanedWindow(self.main_workspace, orient=tk.VERTICAL)
+        self.chat_pane.pack(fill=tk.BOTH, expand=True)
+
+        self.thinking_frame = ttk.Frame(self.main_workspace, padding=(12, 10), style="Panel.TFrame")
+        ttk.Label(
+            self.thinking_frame,
+            text="Thinking",
+            style="Section.TLabel",
+        ).pack(anchor=tk.W, pady=(0, 6))
+        self.thinking_display = scrolledtext.ScrolledText(
+            self.thinking_frame, wrap=tk.WORD, state=tk.NORMAL, relief=tk.FLAT,
+            borderwidth=0, padx=10, pady=10, height=8,
+        )
+        self.thinking_display.pack(fill=tk.BOTH, expand=True)
+
+        self.main_chat_frame = ttk.Frame(self.main_workspace, padding=(12, 10), style="Panel.TFrame")
+        ttk.Label(
+            self.main_chat_frame,
+            text="Conversation",
+            style="Section.TLabel",
+        ).pack(anchor=tk.W, pady=(0, 6))
+        self.chat_display = scrolledtext.ScrolledText(
+            self.main_chat_frame, wrap=tk.WORD, state=tk.NORMAL, relief=tk.FLAT,
+            borderwidth=0, padx=10, pady=10,
+        )
+        self.chat_display.pack(fill=tk.BOTH, expand=True)
+
+        input_frame = ttk.Frame(self.main_workspace, padding=(0, 8, 0, 0), style="Input.TFrame")
+        input_frame.pack(fill=tk.X)
+
+        self.user_input = tk.Text(
+            input_frame,
+            height=3,
+            wrap=tk.WORD,
+            relief=tk.FLAT,
+            borderwidth=0,
+            padx=10,
+            pady=8,
+        )
+        self.user_input.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
+        self.user_input.bind("<Return>", self._on_enter)
+        self.user_input.bind("<Shift-Return>", lambda e: None)
+        self.user_input.bind("<Escape>", self._hide_slash_command_popup)
+        self.user_input.bind("<Tab>", self._complete_selected_slash_command)
+        self.user_input.bind("<Down>", self._slash_command_down)
+        self.user_input.bind("<Up>", self._slash_command_up)
+        self.user_input.bind("<KeyRelease>", self._on_user_input_changed)
+        self.user_input.bind("<<Paste>>", self._on_user_input_changed)
+
+        self.slash_popup = tk.Listbox(
+            input_frame,
+            height=3,
+            activestyle="none",
+            exportselection=False,
+            relief=tk.FLAT,
+            borderwidth=0,
+        )
+        self.slash_popup.bind("<ButtonRelease-1>", self._complete_selected_slash_command)
+        self.slash_popup.bind("<Return>", self._complete_selected_slash_command)
+        self._slash_popup_items: list[tuple[str, str]] = []
+
+        btn_frame = ttk.Frame(input_frame, style="Input.TFrame")
+        btn_frame.pack(side=tk.RIGHT, fill=tk.Y)
+
         self.think_var = tk.BooleanVar(value=False)
         self.think_check = ttk.Checkbutton(
-            toolbar,
-            text="Thinking Mode",
+            btn_frame,
+            text="Thinking",
             variable=self.think_var,
             command=self._on_thinking_mode_changed,
         )
-        self.think_check.pack(side=tk.LEFT, padx=(0, 8))
+        self.think_check.pack(fill=tk.X, pady=(0, 5))
 
-        self.behaviour_toggle_btn = ttk.Button(
-            toolbar,
-            text="Show Behaviour",
-            command=self._toggle_behaviour_panel,
-        )
-        self.behaviour_toggle_btn.pack(side=tk.LEFT, padx=(0, 8))
+        self.send_btn = ttk.Button(btn_frame, text="Send", command=self._on_send)
+        self.send_btn.pack(fill=tk.X, pady=(0, 5))
+        self.clear_btn = ttk.Button(btn_frame, text="Clear", command=self._on_clear)
+        self.clear_btn.pack(fill=tk.X)
 
-        self.actions_menu = tk.Menu(self.root, tearoff=False)
-        self.actions_menu.add_command(
-            label="Copy Latest Response",
-            command=self._copy_latest_response,
-        )
-        self.actions_menu.add_command(
-            label="Show Diagnostics",
-            command=self._toggle_diagnostics_panel,
-        )
-        self.actions_menu.add_command(
-            label="Reset Generation Settings",
-            command=self._reset_generation_settings,
-        )
-        self.actions_menu.add_separator()
-        self.actions_menu.add_command(
-            label="Open Knowledge Folder",
-            command=self._on_open_knowledge_folder,
-        )
-        self.actions_menu.add_command(
-            label="Rebuild Knowledge Index",
-            command=self._on_rebuild_knowledge_index,
-        )
-        self.actions_btn = ttk.Menubutton(
-            toolbar,
-            text="Actions",
-            menu=self.actions_menu,
-        )
-        self.actions_btn.pack(side=tk.LEFT)
+        self.loading_frame = ttk.Frame(self.main_workspace, padding=32, style="Panel.TFrame")
+        self.loading_frame.columnconfigure(0, weight=1)
+        self.loading_frame.rowconfigure(0, weight=1)
 
-        # --- Assistant behaviour ---
-        self.behaviour_frame = ttk.Frame(self.root, padding=(14, 10), style="Panel.TFrame")
-        behaviour_header = ttk.Frame(self.behaviour_frame, style="Panel.TFrame")
-        behaviour_header.pack(fill=tk.X, pady=(0, 6))
+        loading_content = ttk.Frame(self.loading_frame, padding=24, style="Panel.TFrame")
+        loading_content.grid(row=0, column=0)
+
         ttk.Label(
-            behaviour_header,
-            text="Assistant Behaviour",
+            loading_content,
+            text=APP_NAME,
+            font=(self.font_family.get(), 20, "bold"),
+            anchor=tk.CENTER,
+        ).pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(
+            loading_content,
+            text="Preparing the local model",
+            font=(self.font_family.get(), 12),
+            anchor=tk.CENTER,
+        ).pack(fill=tk.X, pady=(0, 18))
+        self.loading_status_label = ttk.Label(
+            loading_content,
+            textvariable=self.status_var,
+            anchor=tk.CENTER,
+            wraplength=520,
+        )
+        self.loading_status_label.pack(fill=tk.X, pady=(0, 10))
+        self.loading_progress = ttk.Progressbar(
+            loading_content,
+            variable=self.progress_var,
+            maximum=100,
+            length=520,
+        )
+        self.loading_progress.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(
+            loading_content,
+            text=(
+                "First launch may take a while if the model needs to download. "
+                "Later launches still need to load weights into GPU memory."
+            ),
+            anchor=tk.CENTER,
+            justify=tk.CENTER,
+            wraplength=520,
+        ).pack(fill=tk.X)
+
+        self._make_readonly_display(self.thinking_display)
+        self._make_readonly_display(self.chat_display)
+        self.chat_pane.add(self.loading_frame, weight=3)
+        self._loading_screen_visible = True
+        self._thinking_visible = False
+
+    def _build_secondary_sections(self):
+        self.secondary_header_var = tk.StringVar(value="")
+        header = ttk.Frame(self.secondary_workspace, padding=(12, 0, 0, 8), style="App.TFrame")
+        header.pack(fill=tk.X)
+        ttk.Label(
+            header,
+            textvariable=self.secondary_header_var,
             style="Section.TLabel",
         ).pack(side=tk.LEFT)
+        ttk.Button(
+            header,
+            text="Hide",
+            command=self._hide_secondary_workspace,
+        ).pack(side=tk.RIGHT)
 
-        behaviour_tools = ttk.Frame(behaviour_header, style="Panel.TFrame")
-        behaviour_tools.pack(side=tk.RIGHT)
+        self.secondary_stack = ttk.Frame(self.secondary_workspace, style="App.TFrame")
+        self.secondary_stack.pack(fill=tk.BOTH, expand=True)
+        for section in self.section_registry:
+            builder = getattr(self, section.builder_name)
+            frame = builder(self.secondary_stack)
+            self.secondary_frames[section.section_id] = frame
 
-        ttk.Label(
-            behaviour_tools,
-            text="Active profile",
-            style="Toolbar.TLabel",
-        ).pack(side=tk.LEFT, padx=(0, 6))
-        self.profile_combo = ttk.Combobox(
-            behaviour_tools,
-            textvariable=self.profile_var,
-            values=[],
-            width=22,
-            state=tk.DISABLED,
-        )
-        self.profile_combo.pack(side=tk.LEFT, padx=(0, 6))
-        self.profile_combo.bind("<<ComboboxSelected>>", self._on_profile_selected)
+    def _build_chat_section(self, parent):
+        frame = ttk.Frame(parent, padding=(12, 10), style="Panel.TFrame")
+        ttk.Label(frame, text="Current Context", style="Section.TLabel").pack(anchor=tk.W, pady=(0, 8))
+        for variable in (
+            self.context_model_var,
+            self.context_profile_var,
+            self.context_thinking_var,
+            self.context_knowledge_var,
+        ):
+            ttk.Label(frame, textvariable=variable, style="Stats.TLabel").pack(anchor=tk.W, pady=(0, 6))
+        ttk.Button(frame, text="Copy Latest Response", command=self._copy_latest_response).pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(frame, text="Clear Conversation", command=self._on_clear).pack(fill=tk.X, pady=(6, 0))
+        return frame
 
-        self.profile_actions_menu = tk.Menu(self.root, tearoff=False)
-        self.profile_actions_menu.add_command(
-            label="New Profile",
-            command=self._on_new_profile,
-        )
-        self.profile_actions_menu.add_command(
-            label="Add Profile Folder",
-            command=self._on_add_existing_profile,
-        )
-        self.profile_actions_btn = ttk.Menubutton(
-            behaviour_tools,
-            text="Profile Actions",
-            menu=self.profile_actions_menu,
-        )
-        self.profile_actions_btn.pack(side=tk.LEFT, padx=(0, 12))
-
+    def _build_behaviour_section(self, parent):
+        frame = ttk.Frame(parent, padding=(12, 10), style="Panel.TFrame")
+        ttk.Label(frame, text="Assistant Behaviour", style="Section.TLabel").pack(anchor=tk.W, pady=(0, 8))
+        history_row = ttk.Frame(frame, style="Panel.TFrame")
+        history_row.pack(fill=tk.X, pady=(0, 8))
         self.system_prompt_history_combo = ttk.Combobox(
-            behaviour_tools,
+            history_row,
             textvariable=self.system_prompt_history_var,
             values=[],
-            width=58,
             state=tk.DISABLED,
         )
-        self.system_prompt_history_combo.pack(side=tk.LEFT, padx=(0, 6))
+        self.system_prompt_history_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
         self.system_prompt_history_combo.bind(
             "<Return>",
             lambda _event: self._restore_selected_system_prompt(),
         )
-
         self.restore_system_prompt_btn = ttk.Button(
-            behaviour_tools,
-            text="Restore Prompt",
+            history_row,
+            text="Restore",
             command=self._restore_selected_system_prompt,
             state=tk.DISABLED,
         )
-        self.restore_system_prompt_btn.pack(side=tk.LEFT, padx=(0, 10))
-
-        ttk.Label(
-            behaviour_tools,
-            text="Lines",
-            style="Toolbar.TLabel",
-        ).pack(side=tk.LEFT, padx=(0, 6))
-        behaviour_lines_spin = ttk.Spinbox(
-            behaviour_tools,
-            from_=self._system_prompt_min_lines,
-            to=self._system_prompt_max_lines,
-            increment=1,
-            textvariable=self.system_prompt_lines,
-            width=3,
-            command=self._apply_system_prompt_height,
-        )
-        behaviour_lines_spin.pack(side=tk.LEFT)
-        behaviour_lines_spin.bind(
-            "<KeyRelease>",
-            lambda _event: self._apply_system_prompt_height(),
-        )
-        behaviour_lines_spin.bind(
-            "<<Increment>>",
-            lambda _event: self._apply_system_prompt_height(),
-        )
-        behaviour_lines_spin.bind(
-            "<<Decrement>>",
-            lambda _event: self._apply_system_prompt_height(),
-        )
+        self.restore_system_prompt_btn.pack(side=tk.RIGHT)
 
         self.system_prompt = tk.Text(
-            self.behaviour_frame,
+            frame,
             height=self.system_prompt_lines.get(),
             wrap=tk.WORD,
             undo=True,
@@ -524,13 +693,123 @@ class ThoughtbenchApp(
         )
         self.system_prompt.insert("1.0", "You are a helpful assistant.")
         self.system_prompt.edit_reset()
-        self.system_prompt.pack(fill=tk.X)
+        self.system_prompt.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
         self._bind_system_prompt_editing()
         self._apply_system_prompt_height()
 
-        # --- Generation params (collapsible row) ---
-        self.params_frame = ttk.Frame(self.root, padding=(14, 8), style="Params.TFrame")
-        self.params_frame.pack(fill=tk.X, padx=12, pady=(10, 8))
+        self.behaviour_btn = ttk.Button(
+            frame, text="Rewrite Behaviour From Input", command=self._on_update_behaviour
+        )
+        self.behaviour_btn.pack(fill=tk.X)
+        return frame
+
+    def _build_profiles_section(self, parent):
+        frame = ttk.Frame(parent, padding=(12, 10), style="Panel.TFrame")
+        ttk.Label(frame, text="Profiles", style="Section.TLabel").pack(anchor=tk.W, pady=(0, 8))
+        ttk.Label(frame, text="Active profile", style="Toolbar.TLabel").pack(anchor=tk.W)
+        self.profile_combo = ttk.Combobox(
+            frame,
+            textvariable=self.profile_var,
+            values=[],
+            state=tk.DISABLED,
+        )
+        self.profile_combo.pack(fill=tk.X, pady=(4, 10))
+        self.profile_combo.bind("<<ComboboxSelected>>", self._on_profile_selected)
+        ttk.Button(frame, text="New Profile", command=self._on_new_profile).pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(frame, text="Add Profile Folder", command=self._on_add_existing_profile).pack(fill=tk.X)
+        return frame
+
+    def _build_knowledge_section(self, parent):
+        frame = ttk.Frame(parent, padding=(12, 10), style="Panel.TFrame")
+        ttk.Label(frame, text="Knowledge", style="Section.TLabel").pack(anchor=tk.W, pady=(0, 8))
+        self.knowledge_status_var = tk.StringVar(value="Knowledge index status will appear here.")
+        ttk.Label(
+            frame,
+            textvariable=self.knowledge_status_var,
+            style="Stats.TLabel",
+            wraplength=300,
+            justify=tk.LEFT,
+        ).pack(fill=tk.X, pady=(0, 8))
+        ttk.Button(frame, text="Open Knowledge Folder", command=self._on_open_knowledge_folder).pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(frame, text="Rebuild Knowledge Index", command=self._on_rebuild_knowledge_index).pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(frame, text="Knowledge Settings...", command=self._on_knowledge_settings).pack(fill=tk.X, pady=(0, 12))
+
+        self.retrieved_knowledge_frame = ttk.Frame(frame, padding=(8, 6), style="Panel.TFrame")
+        self.retrieved_knowledge_frame.pack(fill=tk.BOTH, expand=True)
+        retrieved_header = ttk.Frame(self.retrieved_knowledge_frame, style="Panel.TFrame")
+        retrieved_header.pack(fill=tk.X)
+        self.retrieved_knowledge_toggle = ttk.Button(
+            retrieved_header,
+            text="Retrieved Knowledge",
+            command=self._toggle_retrieved_knowledge_panel,
+        )
+        self.retrieved_knowledge_toggle.pack(side=tk.LEFT)
+        self.retrieved_knowledge_summary_var = tk.StringVar(value="No snippets")
+        ttk.Label(
+            retrieved_header,
+            textvariable=self.retrieved_knowledge_summary_var,
+            style="Toolbar.TLabel",
+        ).pack(side=tk.LEFT, padx=(8, 0), fill=tk.X, expand=True)
+        self.retrieved_knowledge_display = scrolledtext.ScrolledText(
+            self.retrieved_knowledge_frame,
+            wrap=tk.WORD,
+            state=tk.NORMAL,
+            relief=tk.FLAT,
+            borderwidth=0,
+            padx=8,
+            pady=6,
+            height=8,
+        )
+        self.retrieved_knowledge_display.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+        self._retrieved_knowledge_visible = True
+        self._make_readonly_display(self.retrieved_knowledge_display)
+        return frame
+
+    def _build_diagnostics_section(self, parent):
+        self.diagnostics_frame = ttk.Frame(parent, padding=(12, 10), style="Panel.TFrame")
+        ttk.Label(
+            self.diagnostics_frame,
+            text="Diagnostics",
+            style="Section.TLabel",
+        ).pack(anchor=tk.W, pady=(0, 6))
+        self.diagnostics_display = scrolledtext.ScrolledText(
+            self.diagnostics_frame, wrap=tk.WORD, state=tk.NORMAL, relief=tk.FLAT,
+            borderwidth=0, padx=10, pady=10, height=8,
+        )
+        self.diagnostics_display.pack(fill=tk.BOTH, expand=True)
+        self._make_readonly_display(self.diagnostics_display)
+        return self.diagnostics_frame
+
+    def _build_settings_section(self, parent):
+        frame = ttk.Frame(parent, padding=(12, 10), style="Panel.TFrame")
+        ttk.Label(frame, text="Settings", style="Section.TLabel").pack(anchor=tk.W, pady=(0, 8))
+        self.theme_btn = ttk.Button(frame, text="Light Theme", command=self._toggle_theme)
+        self.theme_btn.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(frame, text="Font", style="Toolbar.TLabel").pack(anchor=tk.W)
+        font_combo = ttk.Combobox(
+            frame,
+            textvariable=self.font_family,
+            values=self._available_fonts,
+            state="readonly",
+        )
+        font_combo.pack(fill=tk.X, pady=(4, 10))
+        font_combo.bind("<<ComboboxSelected>>", lambda _: self._apply_fonts())
+
+        ttk.Label(frame, text="Size", style="Toolbar.TLabel").pack(anchor=tk.W)
+        size_spin = ttk.Spinbox(
+            frame,
+            from_=8,
+            to=24,
+            increment=1,
+            textvariable=self.font_size,
+            width=5,
+            command=self._apply_fonts,
+        )
+        size_spin.pack(anchor=tk.W, pady=(4, 14))
+
+        self.params_frame = ttk.Frame(frame, padding=(0, 0), style="Params.TFrame")
+        self.params_frame.pack(fill=tk.X)
         self.generation_defaults = {
             "temperature": 1.0,
             "top_p": 0.95,
@@ -584,222 +863,52 @@ class ThoughtbenchApp(
             integer=True,
             expand=True,
         )
-        self.max_tokens_var.trace_add(
-            "write",
-            lambda *_args: self._schedule_token_usage_update(),
+        self.max_tokens_var.trace_add("write", lambda *_args: self._schedule_token_usage_update())
+        ttk.Button(frame, text="Reset Generation Settings", command=self._reset_generation_settings).pack(fill=tk.X, pady=(12, 0))
+        return frame
+
+    def _select_sidebar_section(self, section_id: str):
+        if section_id not in self.secondary_frames:
+            section_id = DEFAULT_SECTION_ID
+
+        for frame in self.secondary_frames.values():
+            frame.pack_forget()
+        self.secondary_frames[section_id].pack(fill=tk.BOTH, expand=True)
+        self.active_section_id = section_id
+
+        section = next(
+            (item for item in self.section_registry if item.section_id == section_id),
+            self.section_registry[0],
         )
+        self.secondary_header_var.set(section.label)
+        for current_id, button in self.sidebar_buttons.items():
+            button.state(["pressed"] if current_id == section_id else ["!pressed"])
 
-        # --- Status bar (with progress) — pack BOTTOM first ---
-        status_frame = ttk.Frame(self.root, padding=(12, 6), style="Status.TFrame")
-        status_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        if not self._secondary_workspace_visible():
+            self.workspace_pane.add(self.secondary_workspace, weight=1)
 
-        self.status_var = tk.StringVar(value="Loading model...")
-        ttk.Label(
-            status_frame,
-            textvariable=self.status_var,
-            anchor=tk.W,
-            style="Status.TLabel",
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        if section_id == "diagnostics":
+            self._diagnostics_visible = True
+            self.diagnostics_display.see(tk.END)
 
-        self.progress_var = tk.DoubleVar(value=0)
-        self.progress_bar = CircularProgressIndicator(
-            status_frame,
-            variable=self.progress_var,
-            maximum=100,
-            size=22,
-        )
-        self.progress_bar.pack(side=tk.LEFT, padx=(0, 10))
-        self._status_progress_visible = True
+    def _hide_secondary_workspace(self):
+        try:
+            self.workspace_pane.remove(self.secondary_workspace)
+        except tk.TclError:
+            pass
 
-        self.elapsed_var = tk.StringVar(value="")
-        self.elapsed_label = ttk.Label(
-            status_frame,
-            textvariable=self.elapsed_var,
-            anchor=tk.E,
-            style="Status.TLabel",
-        )
-        self.elapsed_label.pack(side=tk.RIGHT)
+    def _secondary_workspace_visible(self) -> bool:
+        return str(self.secondary_workspace) in [str(pane) for pane in self.workspace_pane.panes()]
 
-        # --- Stats bar — pack BOTTOM second ---
-        self.stats_var = tk.StringVar(value="")
-        self.stats_bar = ttk.Frame(
-            self.root,
-            padding=(12, 3),
-            style="Status.TFrame",
-        )
-        self.stats_bar.pack(fill=tk.X, side=tk.BOTTOM)
-        self.stats_label = ttk.Label(
-            self.stats_bar,
-            textvariable=self.stats_var,
-            anchor=tk.W,
-            style="Stats.TLabel",
-        )
-        self.stats_label.pack(side=tk.LEFT)
-        ttk.Label(
-            self.stats_bar,
-            text="  |  ",
-            style="Stats.TLabel",
-        ).pack(side=tk.LEFT)
-        self.token_stats_label = ttk.Label(
-            self.stats_bar,
-            textvariable=self.token_usage_var,
-            anchor=tk.W,
-            style="Stats.TLabel",
-        )
-        self.token_stats_label.pack(side=tk.LEFT)
-
-        # --- Input bar — pack BOTTOM third ---
-        input_frame = ttk.Frame(self.root, padding=(12, 8, 12, 10), style="Input.TFrame")
-        input_frame.pack(fill=tk.X, side=tk.BOTTOM)
-
-        self.user_input = tk.Text(
-            input_frame,
-            height=3,
-            wrap=tk.WORD,
-            relief=tk.FLAT,
-            borderwidth=0,
-            padx=10,
-            pady=8,
-        )
-        self.user_input.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 8))
-        self.user_input.bind("<Return>", self._on_enter)
-        self.user_input.bind("<Shift-Return>", lambda e: None)
-        self.user_input.bind("<Escape>", self._hide_slash_command_popup)
-        self.user_input.bind("<Tab>", self._complete_selected_slash_command)
-        self.user_input.bind("<Down>", self._slash_command_down)
-        self.user_input.bind("<Up>", self._slash_command_up)
-        self.user_input.bind("<KeyRelease>", self._on_user_input_changed)
-        self.user_input.bind("<<Paste>>", self._on_user_input_changed)
-
-        self.slash_popup = tk.Listbox(
-            input_frame,
-            height=3,
-            activestyle="none",
-            exportselection=False,
-            relief=tk.FLAT,
-            borderwidth=0,
-        )
-        self.slash_popup.bind("<ButtonRelease-1>", self._complete_selected_slash_command)
-        self.slash_popup.bind("<Return>", self._complete_selected_slash_command)
-        self._slash_popup_items: list[tuple[str, str]] = []
-
-        btn_frame = ttk.Frame(input_frame, style="Input.TFrame")
-        btn_frame.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.send_btn = ttk.Button(btn_frame, text="Send", command=self._on_send)
-        self.send_btn.pack(fill=tk.X, pady=(0, 5))
-
-        self.behaviour_btn = ttk.Button(
-            btn_frame, text="Rewrite Behaviour", command=self._on_update_behaviour
-        )
-        self.behaviour_btn.pack(fill=tk.X, pady=(0, 5))
-
-        self.clear_btn = ttk.Button(btn_frame, text="Clear Conversation", command=self._on_clear)
-        self.clear_btn.pack(fill=tk.X)
-
-        # --- Chat display — fills remaining space ---
-        chat_frame = ttk.Frame(self.root, padding=(12, 6), style="App.TFrame")
-        chat_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Use a PanedWindow so the thinking panel can be resized
-        self.chat_pane = ttk.PanedWindow(chat_frame, orient=tk.VERTICAL)
-        self.chat_pane.pack(fill=tk.BOTH, expand=True)
-
-        # Thinking panel (hidden by default, shown when thinking content arrives)
-        self.thinking_frame = ttk.Frame(chat_frame, padding=(12, 10), style="Panel.TFrame")
-        ttk.Label(
-            self.thinking_frame,
-            text="Thinking",
-            style="Section.TLabel",
-        ).pack(anchor=tk.W, pady=(0, 6))
-        self.thinking_display = scrolledtext.ScrolledText(
-            self.thinking_frame, wrap=tk.WORD, state=tk.NORMAL, relief=tk.FLAT,
-            borderwidth=0, padx=10, pady=10, height=8,
-        )
-        self.thinking_display.pack(fill=tk.BOTH, expand=True)
-
-        # Main chat panel
-        self.main_chat_frame = ttk.Frame(chat_frame, padding=(12, 10), style="Panel.TFrame")
-        ttk.Label(
-            self.main_chat_frame,
-            text="Conversation",
-            style="Section.TLabel",
-        ).pack(anchor=tk.W, pady=(0, 6))
-        self.chat_display = scrolledtext.ScrolledText(
-            self.main_chat_frame, wrap=tk.WORD, state=tk.NORMAL, relief=tk.FLAT,
-            borderwidth=0, padx=10, pady=10,
-        )
-        self.chat_display.pack(fill=tk.BOTH, expand=True)
-        self._make_readonly_display(self.thinking_display)
-        self._make_readonly_display(self.chat_display)
-
-        # Diagnostics panel (hidden by default, capture stays active)
-        self.diagnostics_frame = ttk.Frame(chat_frame, padding=(12, 10), style="Panel.TFrame")
-        ttk.Label(
-            self.diagnostics_frame,
-            text="Diagnostics",
-            style="Section.TLabel",
-        ).pack(anchor=tk.W, pady=(0, 6))
-        self.diagnostics_display = scrolledtext.ScrolledText(
-            self.diagnostics_frame, wrap=tk.WORD, state=tk.NORMAL, relief=tk.FLAT,
-            borderwidth=0, padx=10, pady=10, height=8,
-        )
-        self.diagnostics_display.pack(fill=tk.BOTH, expand=True)
-        self._make_readonly_display(self.diagnostics_display)
-
-        # Startup loading panel (shown until model loading completes)
-        self.loading_frame = ttk.Frame(chat_frame, padding=32, style="Panel.TFrame")
-        self.loading_frame.columnconfigure(0, weight=1)
-        self.loading_frame.rowconfigure(0, weight=1)
-
-        loading_content = ttk.Frame(self.loading_frame, padding=24, style="Panel.TFrame")
-        loading_content.grid(row=0, column=0)
-
-        ttk.Label(
-            loading_content,
-            text=APP_NAME,
-            font=(self.font_family.get(), 20, "bold"),
-            anchor=tk.CENTER,
-        ).pack(fill=tk.X, pady=(0, 10))
-
-        ttk.Label(
-            loading_content,
-            text="Preparing the local model",
-            font=(self.font_family.get(), 12),
-            anchor=tk.CENTER,
-        ).pack(fill=tk.X, pady=(0, 18))
-
-        self.loading_status_label = ttk.Label(
-            loading_content,
-            textvariable=self.status_var,
-            anchor=tk.CENTER,
-            wraplength=520,
-        )
-        self.loading_status_label.pack(fill=tk.X, pady=(0, 10))
-
-        self.loading_progress = ttk.Progressbar(
-            loading_content,
-            variable=self.progress_var,
-            maximum=100,
-            length=520,
-        )
-        self.loading_progress.pack(fill=tk.X, pady=(0, 10))
-
-        ttk.Label(
-            loading_content,
-            text=(
-                "First launch may take a while if the model needs to download. "
-                "Later launches still need to load weights into GPU memory."
-            ),
-            anchor=tk.CENTER,
-            justify=tk.CENTER,
-            wraplength=520,
-        ).pack(fill=tk.X)
-
-        # Initially only show the chat panel
-        self.chat_pane.add(self.loading_frame, weight=3)
-        self._loading_screen_visible = True
-        self._thinking_visible = False
+    def _refresh_context_strip(self):
+        if not hasattr(self, "context_model_var"):
+            return
+        self.context_model_var.set(f"Model: {self._assistant_display_name()}")
+        self.context_profile_var.set(f"Profile: {self.profile_var.get()}")
+        self.context_thinking_var.set(f"Thinking: {'on' if self.think_var.get() else 'off'}")
+        self.context_knowledge_var.set(self._knowledge_status_text())
+        if hasattr(self, "knowledge_status_var"):
+            self.knowledge_status_var.set(self._knowledge_status_text())
 
     def _make_readonly_display(self, widget: tk.Text):
         widget.configure(cursor="xterm", takefocus=True)
@@ -811,6 +920,46 @@ class ThoughtbenchApp(
         widget.bind("<ButtonPress-1>", lambda _event, w=widget: self._freeze_selection_updates(w), add="+")
         widget.bind("<B1-Motion>", lambda _event, w=widget: self._freeze_selection_updates(w), add="+")
         widget.bind("<ButtonRelease-1>", lambda _event, w=widget: self._release_selection_updates(w), add="+")
+
+    def _toggle_retrieved_knowledge_panel(self):
+        if self._retrieved_knowledge_visible:
+            self.retrieved_knowledge_display.pack_forget()
+            self._retrieved_knowledge_visible = False
+            return
+        self.retrieved_knowledge_display.pack(fill=tk.X, pady=(6, 0))
+        self._retrieved_knowledge_visible = True
+
+    def _update_retrieved_knowledge_panel(self, results):
+        if not hasattr(self, "retrieved_knowledge_frame"):
+            return
+
+        if not results:
+            self.retrieved_knowledge_summary_var.set("No snippets")
+            self.retrieved_knowledge_display.configure(state=tk.NORMAL)
+            self.retrieved_knowledge_display.delete("1.0", tk.END)
+            self.retrieved_knowledge_display.configure(state=tk.NORMAL)
+            self.retrieved_knowledge_display.pack_forget()
+            self._retrieved_knowledge_visible = False
+            return
+
+        if not self._retrieved_knowledge_visible:
+            self.retrieved_knowledge_display.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+            self._retrieved_knowledge_visible = True
+        self.retrieved_knowledge_summary_var.set(f"{len(results)} snippet(s)")
+        lines = []
+        for result in results:
+            matched = ", ".join(result.matched_terms) if result.matched_terms else "(none)"
+            snippet = result.chunk.text.strip().replace("\n", " ")
+            if len(snippet) > 500:
+                snippet = snippet[:497].rstrip() + "..."
+            lines.append(
+                f"{result.chunk.chunk_id} | score={result.score:.3f} | matched={matched}\n{snippet}"
+            )
+
+        self.retrieved_knowledge_display.configure(state=tk.NORMAL)
+        self.retrieved_knowledge_display.delete("1.0", tk.END)
+        self.retrieved_knowledge_display.insert("1.0", "\n\n".join(lines))
+        self.retrieved_knowledge_display.configure(state=tk.NORMAL)
 
     def _bind_system_prompt_editing(self):
         self.system_prompt.bind("<Control-a>", lambda _event: self._select_all_text(self.system_prompt))
@@ -864,7 +1013,7 @@ class ThoughtbenchApp(
     def _toggle_theme(self):
         self.is_dark = not self.is_dark
         sv_ttk.set_theme("dark" if self.is_dark else "light")
-        self.theme_btn.configure(text="Light" if self.is_dark else "Dark")
+        self.theme_btn.configure(text="Light Theme" if self.is_dark else "Dark Theme")
         self._apply_theme()
 
     def _apply_theme(self):
@@ -877,6 +1026,7 @@ class ThoughtbenchApp(
         style.configure("Params.TFrame", background=palette["surface_alt"])
         style.configure("Input.TFrame", background=palette["surface"])
         style.configure("Status.TFrame", background=palette["surface_alt"])
+        style.configure("Sidebar.TFrame", background=palette["surface_alt"])
         style.configure(
             "Header.TLabel",
             background=palette["surface"],
@@ -899,6 +1049,12 @@ class ThoughtbenchApp(
             background=palette["surface"],
             foreground=palette["text_fg"],
             font=(self.font_family.get(), self.font_size.get(), "bold"),
+        )
+        style.configure(
+            "SidebarTitle.TLabel",
+            background=palette["surface_alt"],
+            foreground=palette["text_fg"],
+            font=(self.font_family.get(), self.font_size.get() + 1, "bold"),
         )
         style.configure(
             "Toolbar.TLabel",
@@ -943,6 +1099,7 @@ class ThoughtbenchApp(
             self.system_prompt,
             self.thinking_display,
             self.diagnostics_display,
+            self.retrieved_knowledge_display,
         ]
         for w in text_widgets:
             w.configure(
@@ -982,6 +1139,7 @@ class ThoughtbenchApp(
             self.system_prompt,
             self.thinking_display,
             self.diagnostics_display,
+            self.retrieved_knowledge_display,
         ]:
             w.configure(font=base_font)
         self._apply_theme()
@@ -1035,6 +1193,7 @@ class ThoughtbenchApp(
             self.chat_display.tag_configure(tag_name, **opts)
             self.thinking_display.tag_configure(tag_name, **opts)
             self.diagnostics_display.tag_configure(tag_name, **opts)
+            self.retrieved_knowledge_display.tag_configure(tag_name, **opts)
 
         self.user_input.tag_configure(
             "slash_command",
@@ -1077,6 +1236,7 @@ class ThoughtbenchApp(
 
     def _on_thinking_mode_changed(self):
         self._schedule_token_usage_update()
+        self._refresh_context_strip()
         if self.think_var.get():
             self.status_var.set("Thinking mode on.")
             return
@@ -1092,26 +1252,10 @@ class ThoughtbenchApp(
         self.status_var.set("Thinking mode off.")
 
     def _toggle_behaviour_panel(self):
-        if self._behaviour_visible:
-            self.behaviour_frame.pack_forget()
-            self._behaviour_visible = False
-            self.behaviour_toggle_btn.configure(text="Show Behaviour")
-            return
-
-        self.behaviour_frame.pack(fill=tk.X, padx=12, pady=(10, 6), before=self.params_frame)
-        self._behaviour_visible = True
-        self.behaviour_toggle_btn.configure(text="Hide Behaviour")
+        self._select_sidebar_section("behaviour")
 
     def _toggle_diagnostics_panel(self):
-        if self._diagnostics_visible:
-            self.chat_pane.remove(self.diagnostics_frame)
-            self._diagnostics_visible = False
-            self.actions_menu.entryconfigure(1, label="Show Diagnostics")
-            return
-
-        self.chat_pane.add(self.diagnostics_frame, weight=1)
-        self._diagnostics_visible = True
-        self.actions_menu.entryconfigure(1, label="Hide Diagnostics")
+        self._select_sidebar_section("diagnostics")
         self.diagnostics_display.see(tk.END)
 
     def _make_generation_slider(
@@ -1128,7 +1272,7 @@ class ThoughtbenchApp(
         expand: bool = False,
     ):
         frame = ttk.Frame(parent, style="Params.TFrame")
-        frame.pack(side=tk.LEFT, fill=tk.X, expand=expand, padx=(0, 18 if not expand else 0))
+        frame.pack(fill=tk.X, expand=expand, pady=(0, 12))
 
         header = ttk.Frame(frame, style="Params.TFrame")
         header.pack(fill=tk.X)
@@ -1212,12 +1356,6 @@ class ThoughtbenchApp(
         state = ["disabled"] if self.generating or self.updating_behaviour else ["!disabled"]
         for scale in self._generation_sliders:
             scale.state(state)
-        actions_menu = getattr(self, "actions_menu", None)
-        if actions_menu is not None:
-            actions_menu.entryconfigure(
-                2,
-                state=tk.DISABLED if self.generating or self.updating_behaviour else tk.NORMAL,
-            )
 
     def _creativity_label(self, value: float) -> str:
         if value < 0.5:

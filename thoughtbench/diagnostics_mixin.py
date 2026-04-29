@@ -11,8 +11,8 @@ from .diagnostics import TkLogStream
 class DiagnosticsMixin:
     def _setup_diagnostics_capture(self):
         self._start_diagnostics_log()
-        sys.stdout = TkLogStream(self, self._stdout_original, "stdout")
-        sys.stderr = TkLogStream(self, self._stderr_original, "stderr")
+        sys.stdout = TkLogStream(self, self._stdout_original, "stdout", capture_to_app=False)
+        sys.stderr = TkLogStream(self, self._stderr_original, "stderr", capture_to_app=True)
         self._diagnostics_redirected = True
         self._capture_diagnostic(
             f"Diagnostics started: {datetime.now().isoformat(timespec='seconds')}\n",

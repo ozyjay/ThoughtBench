@@ -16,12 +16,16 @@ from .config import (
     valid_model_id_or_default,
 )
 from .knowledge import (
+    DEFAULT_KNOWLEDGE_SETTINGS,
+    KnowledgeSettings,
     build_knowledge_index,
     ensure_knowledge_dirs,
     format_source_summary,
     index_is_stale,
     knowledge_folder,
+    load_knowledge_settings,
     load_knowledge_index,
+    save_knowledge_settings,
 )
 from .storage import (
     conversation_path,
@@ -44,8 +48,10 @@ class PersistenceMixin:
 
         self._load_saved_system_prompt()
         self._load_system_prompt_history()
+        self._load_knowledge_settings_for_profile()
         self._load_knowledge_index_for_profile()
         self._save_system_prompt(remember_previous=False)
+        self._refresh_context_strip()
         self._start_new_log()
 
     def _read_settings(self) -> dict:
@@ -146,6 +152,7 @@ class PersistenceMixin:
             self.profile_var.set(labels[0])
         else:
             self.profile_var.set("No profiles")
+        self._refresh_context_strip()
 
     def _sanitize_profile_name(self, name: str) -> str:
         cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", name.strip())
@@ -190,11 +197,26 @@ class PersistenceMixin:
         try:
             ensure_knowledge_dirs(self.log_dir)
             self.knowledge_index = load_knowledge_index(self.log_dir)
-            self.knowledge_index_stale = index_is_stale(self.log_dir, self.knowledge_index)
+            self.knowledge_index_stale = index_is_stale(
+                self.log_dir,
+                self.knowledge_index,
+                getattr(self, "knowledge_settings", DEFAULT_KNOWLEDGE_SETTINGS),
+            )
         except OSError as exc:
             self.knowledge_index = None
             self.knowledge_index_stale = False
             self.status_var.set(f"Knowledge unavailable: {exc}")
+
+    def _load_knowledge_settings_for_profile(self):
+        self.knowledge_settings = DEFAULT_KNOWLEDGE_SETTINGS
+        if not self.log_dir:
+            return
+
+        try:
+            self.knowledge_settings = load_knowledge_settings(self.log_dir)
+        except OSError as exc:
+            self.knowledge_settings = DEFAULT_KNOWLEDGE_SETTINGS
+            self.status_var.set(f"Knowledge settings unavailable: {exc}")
 
     def _knowledge_status_text(self) -> str:
         index = getattr(self, "knowledge_index", None)
@@ -227,7 +249,10 @@ class PersistenceMixin:
             return
 
         try:
-            self.knowledge_index = build_knowledge_index(self.log_dir)
+            self.knowledge_index = build_knowledge_index(
+                self.log_dir,
+                getattr(self, "knowledge_settings", DEFAULT_KNOWLEDGE_SETTINGS),
+            )
             self.knowledge_index_stale = False
         except OSError as exc:
             self.status_var.set(f"Knowledge rebuild failed: {exc}")
@@ -237,10 +262,98 @@ class PersistenceMixin:
         summary = self._knowledge_status_text()
         self.status_var.set(summary)
         self._append_log_entry("Knowledge Rebuild", summary)
+        self._refresh_context_strip()
         self._schedule_token_usage_update()
+
+    def _on_knowledge_settings(self):
+        if not self.log_dir:
+            self.status_var.set("No active profile folder.")
+            return
+
+        settings = getattr(self, "knowledge_settings", DEFAULT_KNOWLEDGE_SETTINGS)
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Knowledge Settings")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+
+        frame = tk.Frame(dialog, padx=16, pady=14)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        fields = [
+            ("Top K", "top_k", tk.IntVar(value=settings.top_k)),
+            ("Context chars", "context_char_budget", tk.IntVar(value=settings.context_char_budget)),
+            ("Chunk size", "chunk_size", tk.IntVar(value=settings.chunk_size)),
+            ("Chunk overlap", "chunk_overlap", tk.IntVar(value=settings.chunk_overlap)),
+            ("Minimum score", "minimum_score", tk.DoubleVar(value=settings.minimum_score)),
+            ("Minimum matched terms", "minimum_matched_terms", tk.IntVar(value=settings.minimum_matched_terms)),
+        ]
+        for row, (label, _name, variable) in enumerate(fields):
+            tk.Label(frame, text=label, anchor=tk.W).grid(row=row, column=0, sticky=tk.W, pady=3, padx=(0, 10))
+            tk.Entry(frame, textvariable=variable, width=14).grid(row=row, column=1, sticky=tk.EW, pady=3)
+
+        button_frame = tk.Frame(frame)
+        button_frame.grid(row=len(fields), column=0, columnspan=2, sticky=tk.E, pady=(12, 0))
+
+        def read_settings() -> KnowledgeSettings | None:
+            values = {name: variable.get() for _label, name, variable in fields}
+            candidate = KnowledgeSettings(**values)
+            if not candidate.is_valid():
+                messagebox.showerror(
+                    "Knowledge Settings",
+                    "Use positive values. Chunk overlap must be smaller than chunk size.",
+                    parent=dialog,
+                )
+                return None
+            return candidate
+
+        def save_settings(rebuild: bool = False):
+            candidate = read_settings()
+            if candidate is None:
+                return
+            try:
+                previous_settings = getattr(self, "knowledge_settings", DEFAULT_KNOWLEDGE_SETTINGS)
+                save_knowledge_settings(self.log_dir, candidate)
+                chunking_changed = (
+                    candidate.chunk_size != previous_settings.chunk_size
+                    or candidate.chunk_overlap != previous_settings.chunk_overlap
+                )
+                self.knowledge_settings = candidate
+                if rebuild:
+                    self.knowledge_index = build_knowledge_index(self.log_dir, candidate)
+                    self.knowledge_index_stale = False
+                    self.status_var.set(self._knowledge_status_text())
+                elif chunking_changed:
+                    self.knowledge_index_stale = True
+                    self.status_var.set("Knowledge chunk settings saved. Rebuild recommended.")
+                else:
+                    self.knowledge_index_stale = index_is_stale(
+                        self.log_dir,
+                        self.knowledge_index,
+                        candidate,
+                    ) if self.knowledge_index is not None else False
+                    self.status_var.set("Knowledge settings saved.")
+            except OSError as exc:
+                messagebox.showerror(
+                    "Knowledge Settings",
+                    f"Could not save knowledge settings:\n{exc}",
+                    parent=dialog,
+                )
+                return
+            self._refresh_context_strip()
+            self._schedule_token_usage_update()
+            dialog.destroy()
+
+        tk.Button(button_frame, text="Save", command=lambda: save_settings(False)).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Button(button_frame, text="Save and Rebuild Index", command=lambda: save_settings(True)).pack(side=tk.LEFT)
+
+        dialog.update_idletasks()
+        dialog.geometry(f"+{self.root.winfo_rootx() + 80}+{self.root.winfo_rooty() + 80}")
+        dialog.grab_set()
 
     def _show_retrieved_knowledge_sources(self):
         results = getattr(self, "last_retrieved_knowledge", [])
+        if hasattr(self, "_update_retrieved_knowledge_panel"):
+            self._update_retrieved_knowledge_panel(results)
         if not results:
             return
         summary = format_source_summary(results)
@@ -707,11 +820,13 @@ class PersistenceMixin:
 
         self._load_saved_system_prompt()
         self._load_system_prompt_history()
+        self._load_knowledge_settings_for_profile()
         self._load_knowledge_index_for_profile()
         self._load_saved_conversation()
         self._start_new_log()
         self._start_diagnostics_log()
         self._schedule_token_usage_update()
+        self._refresh_context_strip()
         self._capture_diagnostic(
             f"Switched profile: {profile_dir}\n",
             "diagnostic_meta",

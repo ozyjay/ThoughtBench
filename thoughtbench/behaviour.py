@@ -6,7 +6,13 @@ import threading
 import traceback
 import tkinter as tk
 
-from .knowledge import format_diagnostic_summary, format_retrieved_context, format_source_summary
+from .knowledge import (
+    DEFAULT_KNOWLEDGE_SETTINGS,
+    format_diagnostic_summary,
+    format_retrieved_context,
+    format_source_summary,
+    index_is_stale,
+)
 from .model_loading import model_input_device
 from .model import split_model_response
 from .config import get_model_option
@@ -315,6 +321,17 @@ class BehaviourMixin:
         if knowledge_index is None or not getattr(knowledge_index, "chunks", None):
             return ""
 
+        settings = getattr(self, "knowledge_settings", DEFAULT_KNOWLEDGE_SETTINGS)
+        if getattr(self, "log_dir", None) and index_is_stale(self.log_dir, knowledge_index, settings):
+            self.knowledge_index_stale = True
+            warning = "Knowledge index is stale - rebuild recommended."
+            if hasattr(self, "status_var"):
+                self.status_var.set(warning)
+            self._append_log_entry("Knowledge", warning)
+            if hasattr(self, "_capture_diagnostic"):
+                self._capture_diagnostic(warning + "\n", "diagnostic_meta")
+            return ""
+
         latest_user_message = None
         for message in reversed(self.messages):
             if message.get("role") == "user":
@@ -323,7 +340,12 @@ class BehaviourMixin:
         if not isinstance(latest_user_message, str) or not latest_user_message.strip():
             return ""
 
-        results = knowledge_index.retrieve(latest_user_message)
+        results = knowledge_index.retrieve(
+            latest_user_message,
+            top_k=settings.top_k,
+            minimum_score=settings.minimum_score,
+            minimum_matched_terms=settings.minimum_matched_terms,
+        )
         self.last_retrieved_knowledge = results
         if results and log_retrieval:
             self._append_log_entry(
@@ -332,7 +354,7 @@ class BehaviourMixin:
             )
             if hasattr(self, "_capture_diagnostic"):
                 self._capture_diagnostic(format_diagnostic_summary(results), "diagnostic_meta")
-        return format_retrieved_context(results)
+        return format_retrieved_context(results, max_chars=settings.context_char_budget)
 
     def _build_messages(self, log_knowledge: bool = True) -> list[dict]:
         self._save_system_prompt()

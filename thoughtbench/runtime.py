@@ -254,6 +254,7 @@ class RuntimeMixin:
                 from huggingface_hub import snapshot_download
 
                 self.root.after(0, self._start_elapsed_timer)
+                self._suppress_stream_diagnostics = True
 
                 # Phase 1: download with progress
                 TkProgressBar._tk_progress_var = self.progress_var
@@ -281,6 +282,7 @@ class RuntimeMixin:
                     local_path,
                     model_option=model_option,
                 )
+                self._suppress_stream_diagnostics = False
 
                 def _done():
                     self.active_model_option = model_option
@@ -291,6 +293,7 @@ class RuntimeMixin:
                     self._hide_loading_screen()
                     self.progress_var.set(0)
                     self._schedule_token_usage_update()
+                    self._refresh_context_strip()
                     if self._pending_send:
                         self._pending_send = False
                         self.status_var.set(
@@ -314,6 +317,7 @@ class RuntimeMixin:
                 self.root.after(0, _done)
 
             except Exception as e:
+                self._suppress_stream_diagnostics = False
                 traceback.print_exc(file=sys.stderr)
 
                 def _show_load_error(err=e):
