@@ -1,10 +1,40 @@
 # Thoughtbench
 
-Run local thinking-capable **Gemma 4** and **Qwen3** models.
+Thoughtbench is a local desktop chat workbench for thinking-capable **Gemma 4**
+and **Qwen3** models. It runs models from Hugging Face on your own Windows
+machine, keeps your chats and Behaviour Profiles in local folders, and includes
+profile-local knowledge retrieval for project notes, policies, and other
+reference files.
 
 This guide assumes you are using a **Windows 11** computer with an **NVIDIA GPU**.
 The smoothest experience is on **12 GB+ VRAM**. An **8 GB VRAM** card can use the
 project's automatic low-VRAM mode.
+
+## Features
+
+- Desktop Tk app with streaming chat, separate Thinking output, and markdown
+  rendering.
+- Curated Gemma 4 and Qwen3 model picker with optional Thinking Mode.
+- Behaviour Profiles with separate system prompts, prompt history,
+  conversations, transcripts, diagnostics, and knowledge files.
+- Local `.md` / `.txt` knowledge indexing with BM25 retrieval and visible source
+  notes.
+- Token usage indicator that counts Assistant Behaviour, restored conversation,
+  retrieved knowledge, and reserved reply budget.
+- Windows setup assistant for Python 3.12, PyTorch CUDA packages, Pascal GPU
+  compatibility, Hugging Face checks, optional pre-download, and app launch.
+- PyInstaller build and user-local installer scripts for the desktop app.
+
+## Requirements
+
+- Windows 11.
+- NVIDIA GPU with a current driver.
+- 8 GB VRAM minimum for the smaller curated models; 12 GB+ VRAM is smoother.
+- Python 3.12. The setup script expects Python Manager's `py` launcher, but an
+  existing compatible `.venv` can also be reused.
+- Enough disk space for the Python environment and Hugging Face model cache.
+  The default E2B model can need roughly **10-20 GB** in cache; larger models
+  need more.
 
 ## Quick Windows setup
 
@@ -76,6 +106,24 @@ The assistant cannot install NVIDIA drivers or install Python globally. This
 project expects Python 3.12 to be managed with Python Manager:
 https://github.com/python/pymanager. The setup assistant will tell you when a
 manual Python or driver step is required.
+
+## Project layout
+
+```text
+app.py                         desktop app entrypoint
+chat.py                        interactive terminal chat
+generate.py                    single-shot terminal generation
+thoughtbench\                  app package
+thoughtbench\config.py         app constants and curated model catalog
+thoughtbench\knowledge.py      profile-local BM25 knowledge index
+thoughtbench\persistence.py    profiles, prompt history, logs, saved state
+thoughtbench\runtime.py        model runtime and streaming orchestration
+thoughtbench\ui.py             Tk desktop UI
+scripts\Setup-Thoughtbench.ps1 Windows setup/check/download/launch helper
+scripts\Build.ps1              PyInstaller build helper
+scripts\Install-ToPrograms.ps1 user-local installer
+tests\                         unit tests for knowledge retrieval and injection
+```
 
 ## Hugging Face model location
 
@@ -366,6 +414,15 @@ To try knowledge retrieval quickly:
 
 If retrieval finds a match, the chat/status area shows the injected source chunk
 before the assistant response.
+
+## Tests
+
+The current test suite covers the profile-local knowledge index and retrieval
+message injection. Run it from an activated virtual environment:
+
+```powershell
+python -m unittest discover tests
+```
 
 ### Single-shot generation
 
