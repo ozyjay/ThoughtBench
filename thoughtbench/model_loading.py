@@ -119,13 +119,15 @@ def build_model_load_kwargs(mode: str | None = None) -> tuple[dict, ModelLoadInf
             bnb_4bit_use_double_quant=True,
         )
         kwargs["device_map"] = {"": 0} if torch.cuda.is_available() else "auto"
-        detail = "4-bit low-VRAM load"    elif torch.backends.mps.is_available() and not torch.cuda.is_available():
+        detail = "4-bit low-VRAM load"
+    elif torch.backends.mps.is_available() and not torch.cuda.is_available():
         # Apple Silicon: route entire model to MPS.
         # device_map="auto" with accelerate resolves to CPU on macOS;
         # explicitly targeting mps gives Metal-backed inference.
-        kwargs["device_map"] = {"" : "mps"}
+        kwargs["device_map"] = {"": "mps"}
         kwargs["dtype"] = dtype
-        detail = "MPS (Apple Silicon) load"    else:
+        detail = "MPS (Apple Silicon) load"
+    else:
         kwargs["device_map"] = "auto"
         kwargs["dtype"] = dtype
         detail = "BF16/FP16 load"
