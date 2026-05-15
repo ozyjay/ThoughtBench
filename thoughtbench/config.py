@@ -1,7 +1,17 @@
 """Application constants and theme palettes."""
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+
+def _settings_dir() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Thoughtbench"
+    if sys.platform == "win32":
+        return Path.home() / "AppData" / "Roaming" / "Thoughtbench"
+    # Linux / other
+    return Path.home() / ".config" / "Thoughtbench"
 
 
 @dataclass(frozen=True)
@@ -95,7 +105,7 @@ SYSTEM_PROMPT_FILE_NAME = "system_prompt.md"
 SYSTEM_PROMPT_HISTORY_FILE_NAME = "system_prompt_history.json"
 SYSTEM_PROMPT_HISTORY_LIMIT = 50
 CONVERSATION_FILE_NAME = "conversation.json"
-SETTINGS_DIR = Path.home() / "AppData" / "Roaming" / "Thoughtbench"
+SETTINGS_DIR = _settings_dir()
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 LEGACY_SETTINGS_DIR = Path.home() / "AppData" / "Roaming" / "TestGemma4"
 LEGACY_SETTINGS_FILE = LEGACY_SETTINGS_DIR / "settings.json"
