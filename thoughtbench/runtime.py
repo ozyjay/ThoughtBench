@@ -6,6 +6,7 @@ import time
 import traceback
 import tkinter as tk
 from datetime import datetime
+from queue import Empty
 
 from .config import APP_NAME, get_model_option
 from .model_loading import load_processor_and_model, model_input_device
@@ -14,7 +15,46 @@ from .stats import TkProgressBar
 
 
 class RuntimeMixin:
+    def _start_ui_event_loop(self):
+        self._ui_event_job = self.root.after(25, self._drain_ui_events)
+
+    def _post_ui_event(self, callback):
+        if getattr(self, "_closing", False):
+            return
+
+        event_queue = getattr(self, "_ui_event_queue", None)
+        if event_queue is None:
+            self.root.after(0, callback)
+            return
+
+        event_queue.put(callback)
+
+    def _drain_ui_events(self):
+        self._ui_event_job = None
+        event_queue = getattr(self, "_ui_event_queue", None)
+        if event_queue is None or getattr(self, "_closing", False):
+            return
+
+        while True:
+            try:
+                callback = event_queue.get_nowait()
+            except Empty:
+                break
+
+            if getattr(self, "_closing", False):
+                break
+            try:
+                callback()
+            except tk.TclError:
+                if not getattr(self, "_closing", False):
+                    raise
+
+        if not getattr(self, "_closing", False):
+            self._ui_event_job = self.root.after(25, self._drain_ui_events)
+
     def _start_stats_loop(self):
+        if getattr(self, "_closing", False):
+            return
         self._refresh_stats_text()
         self.root.after(2000, self._start_stats_loop)
 
@@ -153,8 +193,7 @@ class RuntimeMixin:
                     context_limit,
                     live_reply_tokens,
                 )
-                self.root.after(
-                    0,
+                self._post_ui_event(
                     lambda: self._finish_token_usage_update(
                         revision,
                         prompt_tokens,
@@ -166,7 +205,7 @@ class RuntimeMixin:
                     ),
                 )
             except Exception as exc:
-                self.root.after(0, lambda err=exc: self._fail_token_usage_update(revision, err))
+                self._post_ui_event(lambda err=exc: self._fail_token_usage_update(revision, err))
 
         threading.Thread(target=_count, daemon=True).start()
 
@@ -260,14 +299,13 @@ class RuntimeMixin:
             try:
                 from huggingface_hub import snapshot_download
 
-                self.root.after(0, self._start_elapsed_timer)
+                self._post_ui_event(self._start_elapsed_timer)
 
                 # Phase 1: download with progress
                 TkProgressBar._tk_progress_var = self.progress_var
                 TkProgressBar._tk_status_var = self.status_var
-                TkProgressBar._tk_root = self.root
-                self.root.after(
-                    0,
+                TkProgressBar._tk_dispatch = self._post_ui_event
+                self._post_ui_event(
                     lambda: self.status_var.set(
                         f"Downloading {model_option.display_name}..."
                     ),
@@ -275,21 +313,20 @@ class RuntimeMixin:
                 local_path = snapshot_download(model_option.model_id, tqdm_class=TkProgressBar)
 
                 # Phase 2: load weights
-                self.root.after(
-                    0,
+                self._post_ui_event(
                     lambda: self.status_var.set(
                         f"Loading {model_option.display_name} weights..."
                     ),
                 )
-                self.root.after(0, lambda: self.loading_progress.configure(mode="indeterminate"))
-                self.root.after(0, lambda: self.loading_progress.start(15))
+                self._post_ui_event(lambda: self.loading_progress.configure(mode="indeterminate"))
+                self._post_ui_event(lambda: self.loading_progress.start(15))
 
                 self.processor, self.model, load_info = load_processor_and_model(
                     local_path,
                     model_option=model_option,
                 )
 
-                self.root.after(0, lambda: self._finish_model_load(model_option, load_info))
+                self._post_ui_event(lambda: self._finish_model_load(model_option, load_info))
 
             except Exception as e:
                 traceback.print_exc(file=sys.stderr)
@@ -309,11 +346,14 @@ class RuntimeMixin:
                         f"Failed to load {model_option.display_name} (`{model_option.model_id}`): {err}",
                     )
 
-                self.root.after(0, _show_load_error)
+                self._post_ui_event(_show_load_error)
 
         threading.Thread(target=_load, daemon=True).start()
 
     def _finish_model_load(self, model_option, load_info):
+        if getattr(self, "_closing", False):
+            return
+
         self.active_model_option = model_option
         self.loading_progress.stop()
         self.loading_progress.configure(mode="determinate")
@@ -615,7 +655,7 @@ class RuntimeMixin:
             buffer = ""  # accumulates text to detect special tokens
 
             for chunk in streamer:
-                if self._stop_event.is_set():
+                if self._stop_event.is_set() or getattr(self, "_closing", False):
                     break
 
                 raw_chunks.append(chunk)
@@ -653,10 +693,10 @@ class RuntimeMixin:
                     buffer = buffer[1:]
                     if in_thinking:
                         thinking_chunks.append(ch)
-                        self.root.after(0, self._stream_thinking_chunk, ch)
+                        self._post_ui_event(lambda text=ch: self._stream_thinking_chunk(text))
                     else:
                         response_chunks.append(ch)
-                        self.root.after(0, self._stream_chunk, ch)
+                        self._post_ui_event(lambda text=ch: self._stream_chunk(text))
 
             if gen_error:
                 raise gen_error[0]
@@ -664,10 +704,10 @@ class RuntimeMixin:
             if buffer and not any(st.startswith(buffer) for st in special_tokens):
                 if in_thinking:
                     thinking_chunks.append(buffer)
-                    self.root.after(0, self._stream_thinking_chunk, buffer)
+                    self._post_ui_event(lambda text=buffer: self._stream_thinking_chunk(text))
                 else:
                     response_chunks.append(buffer)
-                    self.root.after(0, self._stream_chunk, buffer)
+                    self._post_ui_event(lambda text=buffer: self._stream_chunk(text))
 
             was_stopped = self._stop_event.is_set()
             parsed = split_model_response("".join(raw_chunks), model_option)
@@ -690,6 +730,9 @@ class RuntimeMixin:
                 thinking_text = strip_chat_special_tokens(thinking_text)
 
             def _finalise():
+                if getattr(self, "_closing", False):
+                    return
+
                 self._cancel_stream_render_jobs()
                 # Replace the streamed plain text with properly rendered markdown
                 self._replace_streamed_with_markdown(response_text)
@@ -738,12 +781,15 @@ class RuntimeMixin:
                 else:
                     self.status_var.set("Ready.")
 
-            self.root.after(0, _finalise)
+            self._post_ui_event(_finalise)
 
         except Exception as e:
             traceback.print_exc(file=sys.stderr)
 
             def _show_error(err=e):
+                if getattr(self, "_closing", False):
+                    return
+
                 self._cancel_stream_render_jobs()
                 if self._active_thinking_block and self._stream_thinking_text.strip():
                     self._replace_streamed_thinking_with_markdown(self._stream_thinking_text)
@@ -756,7 +802,7 @@ class RuntimeMixin:
                 self.generating = False
                 self._refresh_send_button_state()
 
-            self.root.after(0, _show_error)
+            self._post_ui_event(_show_error)
 
     def _on_clear(self):
         self._cancel_stream_render_jobs()
@@ -782,6 +828,16 @@ class RuntimeMixin:
         self._schedule_token_usage_update()
 
     def _on_close(self):
+        self._closing = True
+        self._stop_event.set()
+        self._pending_send = False
+        self._pending_steer = None
+        if getattr(self, "_ui_event_job", None):
+            try:
+                self.root.after_cancel(self._ui_event_job)
+            except tk.TclError:
+                pass
+            self._ui_event_job = None
         self._cancel_stream_render_jobs()
         if self._system_prompt_save_job:
             try:

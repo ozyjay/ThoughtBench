@@ -15,9 +15,25 @@ else:
 class _Root:
     def __init__(self):
         self.idle_callbacks = []
+        self.cancelled = []
+        self.destroyed = False
 
     def after_idle(self, callback):
         self.idle_callbacks.append(callback)
+
+    def after_cancel(self, job):
+        self.cancelled.append(job)
+
+    def destroy(self):
+        self.destroyed = True
+
+
+class _StopEvent:
+    def __init__(self):
+        self.was_set = False
+
+    def set(self):
+        self.was_set = True
 
 
 class _Progress:
@@ -59,6 +75,9 @@ class _RuntimeHarness(RuntimeMixin):
         self.progress_var = _Var()
         self.status_var = _Var()
         self._pending_send = True
+        self._stop_event = _StopEvent()
+        self._system_prompt_save_job = None
+        self._diagnostics_flush_job = None
         self.events = []
 
     def _stop_elapsed_timer(self):
@@ -81,6 +100,24 @@ class _RuntimeHarness(RuntimeMixin):
 
     def _start_generate(self):
         self.events.append("start_generate")
+
+    def _cancel_stream_render_jobs(self):
+        self.events.append("cancel_stream_jobs")
+
+    def _save_system_prompt(self):
+        self.events.append("save_prompt")
+
+    def _flush_diagnostics(self):
+        self.events.append("flush_diagnostics")
+
+    def _capture_diagnostic(self, text, tag):
+        self.events.append(("diagnostic", tag, text))
+
+    def _restore_standard_streams(self):
+        self.events.append("restore_streams")
+
+    def _close_diagnostics_log(self):
+        self.events.append("close_diagnostics")
 
 
 @unittest.skipIf(torch is None, "torch is not installed in this Python environment")
@@ -117,6 +154,16 @@ class RuntimeLoadingTests(unittest.TestCase):
             app.events,
         )
         self.assertIn("CPU float32 load", app.status_var.value)
+
+    def test_close_signals_generation_stop_before_destroying_root(self):
+        app = _RuntimeHarness()
+
+        app._on_close()
+
+        self.assertTrue(app._closing)
+        self.assertTrue(app._stop_event.was_set)
+        self.assertLess(app.events.index("cancel_stream_jobs"), app.events.index("close_diagnostics"))
+        self.assertTrue(app.root.destroyed)
 
 
 if __name__ == "__main__":

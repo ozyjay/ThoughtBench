@@ -32,17 +32,17 @@ class TkProgressBar(tqdm):
     _tk_progress_var: tk.DoubleVar | None = None
     _tk_status_var: tk.StringVar | None = None
     _tk_root: tk.Tk | None = None
+    _tk_dispatch = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     def update(self, n=1):
         super().update(n)
-        if self.total and self._tk_progress_var and self._tk_root:
+        if self.total and self._tk_progress_var and (self._tk_dispatch or self._tk_root):
             pct = (self.n / self.total) * 100
             desc = self.desc or "Downloading"
-            self._tk_root.after(
-                0,
+            callback = (
                 lambda: (
                     self._tk_progress_var.set(pct),
                     self._tk_status_var.set(
@@ -50,8 +50,12 @@ class TkProgressBar(tqdm):
                     )
                     if self._tk_status_var
                     else None,
-                ),
+                )
             )
+            if self._tk_dispatch is not None:
+                self._tk_dispatch(callback)
+            elif self._tk_root is not None:
+                self._tk_root.after(0, callback)
 
     def close(self):
         super().close()

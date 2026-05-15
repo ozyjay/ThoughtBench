@@ -144,13 +144,12 @@ class BehaviourMixin:
             if not rewritten:
                 raise ValueError("The behaviour rewrite was empty.")
 
-            self.root.after(
-                0,
+            self._post_ui_event(
                 lambda: self._finish_behaviour_rewrite(advice, rewritten, thinking_text),
             )
         except Exception as exc:
             traceback.print_exc(file=sys.stderr)
-            self.root.after(0, lambda err=exc: self._fail_behaviour_rewrite(err))
+            self._post_ui_event(lambda err=exc: self._fail_behaviour_rewrite(err))
 
     def _clean_behaviour_rewrite(self, text: str) -> str:
         cleaned = text.replace("\\n", "\n").strip()
@@ -164,6 +163,9 @@ class BehaviourMixin:
         return cleaned
 
     def _finish_behaviour_rewrite(self, advice: str, rewritten: str, thinking_text: str | None):
+        if getattr(self, "_closing", False):
+            return
+
         if thinking_text and self.think_var.get():
             self._stream_thinking_text = thinking_text
             self._replace_streamed_thinking_with_markdown(thinking_text)
@@ -184,6 +186,9 @@ class BehaviourMixin:
         self._refresh_send_button_state()
 
     def _fail_behaviour_rewrite(self, error: Exception):
+        if getattr(self, "_closing", False):
+            return
+
         self._discard_active_thinking_block()
         self._append_chat("System: ", "system_msg")
         self._append_chat(f"Behaviour rewrite failed: {error}\n\n", "system_msg")
@@ -311,4 +316,3 @@ class BehaviourMixin:
     def _build_messages(self) -> list[dict]:
         self._save_system_prompt()
         return [{"role": "system", "content": self._get_system_prompt()}] + self.messages
-

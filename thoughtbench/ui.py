@@ -158,9 +158,12 @@ class ThoughtbenchApp(
         self.messages: list[dict] = []
         self.generating = False
         self.updating_behaviour = False
+        self._closing = False
         self._pending_send = False
         self._stop_event = threading.Event()
         self._pending_steer: str | None = None
+        self._ui_event_queue: queue.Queue = queue.Queue()
+        self._ui_event_job: str | None = None
         self.stats = None
         self._load_start: float = 0
         self._stream_response_text = ""
@@ -235,6 +238,7 @@ class ThoughtbenchApp(
         self._apply_fonts()
         self.system_prompt.bind("<<Modified>>", self._on_system_prompt_modified)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._start_ui_event_loop()
         self.root.after(50, self._finish_startup_async)
 
     def _finish_startup_async(self):
