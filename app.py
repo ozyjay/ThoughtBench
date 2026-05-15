@@ -7,7 +7,6 @@ import tkinter as tk
 from tkinter import ttk
 
 from thoughtbench.config import APP_NAME
-from thoughtbench.resources import _set_windows_app_id
 
 
 def _show_startup_dialog(root: tk.Tk) -> tk.Toplevel:
@@ -62,7 +61,6 @@ def _show_startup_dialog(root: tk.Tk) -> tk.Toplevel:
 
 
 def main():
-    _set_windows_app_id()
     root = tk.Tk()
     root.withdraw()
     startup_dialog = _show_startup_dialog(root)

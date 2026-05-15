@@ -74,7 +74,12 @@ VENV_PY="$REPO_ROOT/.venv/bin/python"
 
 if [[ $CHECK_ONLY -eq 1 ]]; then
   "$VENV_PY" --version
-  "$VENV_PY" -c "import tkinter, torch; print('check=ok'); print('mps=' + str(torch.backends.mps.is_available()))"
+  "$VENV_PY" -c "import tkinter; print('tkinter=ok')"
+  if "$VENV_PY" -c "import torch; print('torch=ok'); print('mps=' + str(torch.backends.mps.is_available()))"; then
+    :
+  else
+    echo "torch=missing (run setup without --check-only to install dependencies)"
+  fi
   exit 0
 fi
 

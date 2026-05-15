@@ -257,13 +257,6 @@ class ThoughtbenchApp(
 
     def _apply_window_icon(self):
         png_path = _resource_path("assets", "app-icon.png")
-        ico_path = _resource_path("assets", "app-icon.ico")
-
-        try:
-            if ico_path.exists():
-                self.root.iconbitmap(default=str(ico_path))
-        except tk.TclError:
-            pass
 
         try:
             if png_path.exists():
@@ -272,12 +265,6 @@ class ThoughtbenchApp(
                 return
         except tk.TclError:
             self._window_icon = None
-
-        try:
-            if ico_path.exists():
-                self.root.iconbitmap(str(ico_path))
-        except tk.TclError:
-            pass
 
     def _build_ui(self):
         # --- Header ---
@@ -1453,4 +1440,3 @@ class ThoughtbenchApp(
         )
         if not self._has_thinking_history:
             self._hide_thinking_panel()
-

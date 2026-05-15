@@ -22,7 +22,6 @@ def safe_collect_submodules(package):
 
 datas = []
 datas += [("assets/app-icon.png", "assets")]
-datas += [("assets/app-icon.ico", "assets")]
 datas += safe_collect_data_files("sv_ttk")
 datas += safe_collect_data_files("transformers")
 datas += safe_collect_data_files("huggingface_hub")
@@ -32,7 +31,6 @@ hiddenimports += safe_collect_submodules("sentencepiece")
 hiddenimports += safe_collect_submodules("tokenizers")
 hiddenimports += safe_collect_submodules("safetensors")
 hiddenimports += safe_collect_submodules("accelerate")
-hiddenimports += safe_collect_submodules("nvidia")
 
 
 a = Analysis(
@@ -68,7 +66,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="assets/app-icon.ico",
+    icon=None,
 )
 
 import sys as _sys

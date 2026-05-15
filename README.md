@@ -1,573 +1,156 @@
 # Thoughtbench
 
-Run local thinking-capable **Gemma 4** and **Qwen3** models.
+Run local thinking-capable **Gemma 4** and **Qwen3** models in a Tk desktop chat app.
 
-This guide assumes you are using a **Windows 11** computer with an **NVIDIA GPU**.
-The smoothest experience is on **12 GB+ VRAM**. An **8 GB VRAM** card can use the
-project's automatic low-VRAM mode.
+This branch is focused on macOS, especially Apple Silicon with PyTorch MPS. It no
+longer carries the Windows CUDA setup path from the main branch.
 
-## Quick Windows setup
+## Quick macOS Setup
 
-These are local models, so setup depends on the computer's GPU, driver, Python
-environment, and the ability to download from Hugging Face.
-
-Before running the app for the first time:
-
-1. Download or clone this project.
-2. Open PowerShell in the project folder.
-3. Check whether the computer looks suitable:
-
-If Windows blocks local PowerShell scripts because of the execution policy, use
-a temporary bypass for the current PowerShell window:
-
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-```
-
-This only affects the current PowerShell process. Alternatively, run a script
-with a one-shot bypass:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Setup-Thoughtbench.ps1 -CheckOnly
-```
-
-```powershell
-.\scripts\Setup-Thoughtbench.ps1 -CheckOnly
-```
-
-The setup assistant checks the GPU, NVIDIA driver, disk space, Python
-environment, PyTorch CUDA support, and whether Hugging Face authentication is
-available. Login is optional for public model downloads.
-
-If the assistant prints `ACTION NEEDED`, follow the final `Next step` it shows,
-then run the check again.
-
-When the check looks suitable, run the setup:
-
-```powershell
-.\scripts\Setup-Thoughtbench.ps1
-```
-
-This creates `.venv` and installs the Python dependencies when needed.
-
-You can pre-download the default E2B model:
-
-```powershell
-.\scripts\Setup-Thoughtbench.ps1 -PreDownloadModel
-```
-
-Or pre-download one of the other curated models:
-
-```powershell
-.\scripts\Setup-Thoughtbench.ps1 -PreDownloadModel -ModelId google/gemma-4-E4B-it
-.\scripts\Setup-Thoughtbench.ps1 -PreDownloadModel -ModelId Qwen/Qwen3-0.6B
-```
-
-To launch Thoughtbench after a successful setup:
-
-```powershell
-.\scripts\Setup-Thoughtbench.ps1 -Launch
-```
-
-The old `scripts\Setup-Gemma4.ps1` path remains as a compatibility wrapper, but
-new documentation and examples use `Setup-Thoughtbench.ps1`.
-
-The assistant cannot install NVIDIA drivers or install Python globally. It will
-tell you when one of those manual steps is required.
-
-## Quick macOS setup (Apple Silicon)
-
-If you are on macOS with Apple Silicon (for example M-series chips), use the
-macOS setup path. It uses a local pyenv Python 3.12 environment and installs
-CPU/MPS-friendly dependencies instead of CUDA wheels.
-
-Install the helper dependencies once:
+Install helper dependencies once:
 
 ```bash
 brew install pyenv tcl-tk openssl@3 readline sqlite3 xz zlib
 ```
 
-Install Python 3.12.13 in pyenv (if needed):
+Install Python 3.12.13 in pyenv if needed:
 
 ```bash
 PYTHON_CONFIGURE_OPTS="--enable-framework" pyenv install -s 3.12.13
 ```
 
-Run the setup script:
+Run setup:
 
 ```bash
 bash ./scripts/Setup-Thoughtbench-macos.sh
 ```
 
-Check-only mode:
+Optional checks and model pre-download:
 
 ```bash
 bash ./scripts/Setup-Thoughtbench-macos.sh --check-only
-```
-
-Pre-download a model:
-
-```bash
 bash ./scripts/Setup-Thoughtbench-macos.sh --pre-download-model
 bash ./scripts/Setup-Thoughtbench-macos.sh --pre-download-model --model-id Qwen/Qwen3-0.6B
 ```
 
-Launch after setup:
+Launch:
 
 ```bash
 bash ./scripts/Setup-Thoughtbench-macos.sh --launch
 ```
 
-## Hugging Face model location
+## Manual Developer Setup
 
-The model files are large and are downloaded by Hugging Face into its
-local cache. The app asks which curated model to load at startup and
-remembers the last choice globally in `%APPDATA%\Thoughtbench\settings.json`.
-Expect the download/cache to need roughly **10-20 GB** for the E2B model and
-substantially more for larger models, plus extra free space for Python packages
-and temporary download files. Smaller Qwen3 models can be much lighter. By
-default, the Hugging Face cache is usually under your Windows user profile.
-
-To store Hugging Face models on another drive, set `HF_HOME` before downloading
-the model:
-
-```powershell
-[Environment]::SetEnvironmentVariable("HF_HOME", "E:\HuggingFace", "User")
+```bash
+PYTHON_CONFIGURE_OPTS="--enable-framework" pyenv install -s 3.12.13
+$HOME/.pyenv/versions/3.12.13/bin/python -m venv --copies .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install -r requirements-macos.txt
+./.venv/bin/python app.py
 ```
 
-Close and reopen PowerShell after setting it, then run:
+Optional Hugging Face login:
 
-```powershell
-.\scripts\Setup-Thoughtbench.ps1 -PreDownloadModel
+```bash
+./.venv/bin/hf auth login
 ```
 
-Use a folder on a drive with plenty of free space. The app will use the same
-Hugging Face cache location when it starts.
+Model files are downloaded into the Hugging Face cache. Set `HF_HOME` before
+setup or launch if you want the cache somewhere specific.
 
-## Manual developer setup
+## Behaviour Profiles
 
-```powershell
-# Create a venv with Python 3.12 (using py launcher)
-py -3.12 -m venv .venv
-.venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Optional: log in to Hugging Face if a download asks for authentication
-hf auth login
-```
-
-Run from source:
-
-```powershell
-python app.py
-```
-
-On first launch, the app creates a default Behaviour Profile under
-`.thoughtbench\profiles\Default`. The `.thoughtbench` folder is the profile
-container; each profile folder stores its own saved Assistant Behaviour
-(`system_prompt.md`), prompt history, current conversation, chat logs, and
-diagnostics logs. The model weights are not stored in this repo; Hugging Face
-downloads and caches them on the machine.
-
-Use the `Show Behaviour` toolbar button to show the Assistant Behaviour panel.
-Inside that panel, use the `Active profile` selector to switch profiles and the
-`Profile Actions` menu to create a new profile or add an existing profile
-folder. Switching profiles saves the current profile and restores the selected
-profile's prompt and conversation.
-
-Assistant Behaviour history is saved beside the current profile's prompt:
+On first launch, Thoughtbench creates a default Behaviour Profile under:
 
 ```text
-.thoughtbench\profiles\Default\system_prompt_history.json
+~/.thoughtbench/profiles/Default
 ```
 
-Use the prompt history selector in the desktop app to restore an earlier
-Assistant Behaviour. The Assistant Behaviour editor supports normal undo and
-redo shortcuts while you are editing it.
-
-The desktop app also saves the current profile's conversation in:
+The `~/.thoughtbench` folder is the profile container. Each profile folder stores
+its own Assistant Behaviour, prompt history, restored conversation, transcripts,
+and diagnostics:
 
 ```text
-.thoughtbench\profiles\Default\conversation.json
+~/.thoughtbench/profiles/Default/system_prompt.md
+~/.thoughtbench/profiles/Default/system_prompt_history.json
+~/.thoughtbench/profiles/Default/conversation.json
+~/.thoughtbench/profiles/Default/gemma4_chat_YYYYMMDD_HHMMSS.md
+~/.thoughtbench/profiles/Default/diagnostics_YYYYMMDD_HHMMSS.log
 ```
 
-When you reopen the app, the active profile's previous conversation is restored.
-Use `Clear Conversation` to start fresh in the current profile. This resets that
-profile's `conversation.json` to an empty conversation but does not delete
-transcript or diagnostics log files.
+Use `Show Behaviour` in the app to switch profiles, create a new profile, add an
+existing profile folder, or restore earlier Assistant Behaviour versions.
 
-Settings that remember the active and recent profiles are stored outside the
-profile folders:
+Older root-level `~/.thoughtbench` profile files are moved into
+`~/.thoughtbench/profiles/Default` automatically.
 
-```text
-%APPDATA%\Thoughtbench\settings.json
+## Models
+
+The app asks which curated model to load at startup and remembers the selection.
+Current curated options include:
+
+| Family | Model ID |
+| --- | --- |
+| Gemma | `google/gemma-4-E2B-it` |
+| Gemma | `google/gemma-4-E4B-it` |
+| Gemma | `google/gemma-4-26B-A4B-it` |
+| Gemma | `google/gemma-4-31B-it` |
+| Qwen | `Qwen/Qwen3-0.6B` |
+| Qwen | `Qwen/Qwen3-1.7B` |
+| Qwen | `Qwen/Qwen3-4B` |
+| Qwen | `Qwen/Qwen3-8B` |
+
+Gemma thinking output uses channel markers. Qwen3 thinking output uses
+`<think>...</think>` blocks.
+
+## Command-Line Helpers
+
+Interactive chat:
+
+```bash
+./.venv/bin/python chat.py --model-id Qwen/Qwen3-0.6B --think
 ```
 
-Older installs that already used `%APPDATA%\TestGemma4\settings.json` or a
-single `.test.gemma4` profile folder are migrated into the active profile list.
-Root-level `.thoughtbench` profile files are moved into
-`.thoughtbench\profiles\Default`. No files need to be moved manually.
+Single-shot generation:
 
-If Git reports dubious ownership after cloning or moving the folder, trust the
-clone path for the current Windows user:
-
-```powershell
-git config --global --add safe.directory <full-path-to-clone>
+```bash
+./.venv/bin/python generate.py "Explain quicksort in Python"
+./.venv/bin/python generate.py --think "What is 25 * 37?"
+./.venv/bin/python generate.py --max-tokens 512 --system "You are a poet." "Write a haiku about local models"
 ```
 
-Example:
+## Model Loading
 
-```powershell
-git config --global --add safe.directory C:/Users/You/source/Thoughtbench
+On Apple Silicon, the app tries to load models on MPS. You can override the load
+mode if needed:
+
+```bash
+THOUGHTBENCH_LOAD_MODE=auto ./.venv/bin/python app.py
+THOUGHTBENCH_LOAD_MODE=bf16 ./.venv/bin/python app.py
 ```
 
-Build and install the desktop app:
+The `4bit` load mode is mainly useful on CUDA systems and may not be useful on
+this macOS-focused branch.
 
-```powershell
-.\scripts\Build.ps1 -Clean
-.\scripts\Install-ToPrograms.ps1 -Replace
-```
-
-Default install path:
-
-```text
-%LOCALAPPDATA%\Programs\Thoughtbench
-```
-
-Run the installed app:
-
-```powershell
-& "$env:LOCALAPPDATA\Programs\Thoughtbench\Thoughtbench.exe"
-```
-
-Custom install location:
-
-```powershell
-.\scripts\Install-ToPrograms.ps1 -InstallRoot "D:\Programs" -Replace
-```
-
-Build a macOS desktop bundle from source:
+## Build The macOS App
 
 ```bash
 bash ./scripts/Build-macos.sh --clean
 ```
 
-Run the built app on macOS:
+The build script installs `requirements-build-macos.txt`, generates
+`assets/app-icon.icns` from `assets/app-icon.png`, and runs PyInstaller.
 
-```bash
-./dist/Thoughtbench/Thoughtbench
-```
-
-## Usage
-
-### Interactive chat
-
-```powershell
-python chat.py            # normal mode
-python chat.py --think    # enable thinking / reasoning mode
-python chat.py --model-id google/gemma-4-E4B-it
-python chat.py --model-id Qwen/Qwen3-0.6B --think
-```
-
-Commands inside the chat session:
-- `/think` — toggle thinking mode on/off
-- `/reset` — clear conversation history
-- `/behaviour <instruction>` — rewrite Assistant Behaviour from advice
-
-In the desktop app, type a behaviour change in the input box and click
-`Rewrite Behaviour` to ask the loaded model to rewrite the saved Assistant Behaviour
-instructions without sending the advice as a normal chat message.
-The rewrite uses thinking mode internally; any thinking output appears in the
-Thinking pane.
-
-Thoughtbench asks which model to load before download/loading begins. The
-curated choices are:
-
-| Family | Model ID | Notes |
-| --- | --- | --- |
-| Gemma | `google/gemma-4-E2B-it` | Default local test model. |
-| Gemma | `google/gemma-4-E4B-it` | Larger edge model. |
-| Gemma | `google/gemma-4-26B-A4B-it` | Larger MoE model. |
-| Gemma | `google/gemma-4-31B-it` | Largest curated Gemma option. |
-| Qwen | `Qwen/Qwen3-0.6B` | Smallest Qwen3 smoke-test model. |
-| Qwen | `Qwen/Qwen3-1.7B` | Small practical Qwen3 option. |
-| Qwen | `Qwen/Qwen3-4B` | Balanced Qwen3 option. |
-| Qwen | `Qwen/Qwen3-8B` | Strongest practical Qwen3 option in this catalog. |
-
-All listed models use the same Thinking Mode switch. Gemma models emit channel
-markers, while Qwen3 models use `<think>...</think>` blocks and are loaded with
-`AutoTokenizer`. Larger models may need much more VRAM, disk space, download
-time, and load time.
-
-The desktop app can keep multiple Behaviour Profiles. Each profile has its own
-Assistant Behaviour, prompt history, restored conversation, transcripts, and
-diagnostics. Use the `Show Behaviour` toolbar button to open the panel, then
-switch profiles from the `Active profile` selector above the prompt editor.
-`Profile Actions` creates a new profile from the current prompt or adds an
-existing profile folder.
-
-The bottom stats bar also shows token usage after the model has loaded. The
-token count includes the current Assistant Behaviour, restored conversation, and
-the configured `Max tokens` reply budget. The indicator changes colour as usage
-approaches the model context window; sending is disabled only when the prompt
-itself no longer fits.
-
-The token readout looks like this:
+The app bundle is written to:
 
 ```text
-Tokens: 6,900/8,192 (84%) - input 5,876 + reply budget 1,024
+dist/Thoughtbench.app
 ```
 
-The `input` number is everything sent before the model starts replying. The
-reply budget is the reserved output room from `Max tokens`. The token part of
-the stats bar is normal below 80%, yellow/orange at 80% or higher, and red at
-95% or higher. It also turns red if the input alone exceeds the model context
-window. If the overall total is yellow or red but sending is still enabled,
-reduce `Max tokens`, shorten Assistant Behaviour, or clear older conversation
-context.
-
-The generation sliders can also affect response time. `Reply length` has the
-most direct effect because it sets the maximum number of new tokens, but
-`Creativity`, `Variety`, and `Choice pool` change sampling behaviour and can
-make responses faster or slower depending on the prompt, GPU, and generated
-text.
-
-### Configuring Assistant Behaviour and knowledge
-
-The Assistant Behaviour field is the app's system prompt. It is a good place for
-stable instructions: tone, role, response style, formatting preferences,
-decision rules, and small reference notes that should apply to every reply.
-
-You can use it in a similar way to GPT Builder instructions by keeping two
-sections in the prompt:
-
-```text
-## Instructions
-- How the assistant should behave
-- What it should prioritize
-- How it should format answers
-
-## Knowledge
-- Compact facts, definitions, policies, examples, or project notes
-- Only include material that is useful often enough to send every turn
-```
-
-The important difference is that this app does not currently retrieve snippets
-from separate knowledge files on demand. Everything in Assistant Behaviour is
-sent to the model on every message. Large knowledge packs therefore consume
-context, reduce room for conversation, and can slow generation.
-
-Use the bottom stats bar to tune the prompt. The `input` token count includes
-Assistant Behaviour, restored conversation, the current user message, and chat
-template overhead. The reply budget comes from `Max tokens`. A practical target
-is to keep total usage below about 80% of the model context window for normal
-chat, and treat 95% as the danger zone.
-
-As a starting point:
-
-- Keep core instructions around 500-2,000 tokens.
-- Add compact knowledge only when it is needed across many turns.
-- Keep the combined instructions plus always-on knowledge around 2,000-4,000
-  tokens if the loaded model reports an 8,192 token context window.
-- Lower `Max tokens` when you want more room for prompt or conversation.
-- Use `Clear Conversation` when an old restored conversation is taking context
-  away from a new task.
-
-Behaviour Profiles are useful for different agent setups. For example, create
-one profile for coding, another for writing, and another for a project-specific
-assistant with its own compact knowledge section. Each profile keeps its own
-Assistant Behaviour, history, conversation, transcripts, and diagnostics.
-
-To experiment safely, edit Assistant Behaviour, watch the token stats update,
-then send a short test prompt. If a change makes the assistant worse, use the
-prompt history selector to restore an earlier version.
-
-### Single-shot generation
-
-```powershell
-python generate.py "Explain quicksort in Python"
-python generate.py --think "What is 25 * 37?"
-python generate.py --model-id google/gemma-4-E4B-it "Explain quicksort in Python"
-python generate.py --model-id Qwen/Qwen3-0.6B --think "What is 25 * 37?"
-python generate.py --max-tokens 512 --system "You are a poet." "Write a haiku about GPU computing"
-```
-
-## VRAM usage
-
-The default E2B-it model normally loads in BF16/FP16 and can use about 10 GB
-VRAM, leaving roughly 2 GB headroom on a 12 GB card. Larger curated models need
-more VRAM and disk cache, and may not fit consumer GPUs without quantization. On
-GPUs below 12 GB VRAM, the app automatically tries 4-bit low-VRAM loading
-instead.
-
-Low-VRAM mode is slower than the normal 12 GB path, but it gives 8 GB cards a
-usable route. Keep `Reply length` closer to 512-1024 tokens on 8 GB cards,
-especially with Thinking Mode enabled.
-
-GTX 10-series cards such as the GTX 1070 use Pascal compute capability 6.1.
-Recent PyTorch CUDA 12.8 wheels do not support that GPU generation, so the setup
-assistant switches those cards to the pinned CUDA 11.8 package set in
-`requirements-pascal.txt`. If setup reports that the installed PyTorch wheel does
-not support the GPU, run:
-
-```powershell
-.\scripts\Setup-Thoughtbench.ps1
-```
-
-That reinstalls the compatible package set inside `.venv`.
-
-You can override model loading with the `THOUGHTBENCH_LOAD_MODE` environment variable:
-
-```powershell
-$env:THOUGHTBENCH_LOAD_MODE = "auto"   # default: 4-bit below 12 GB, normal otherwise
-$env:THOUGHTBENCH_LOAD_MODE = "4bit"   # force low-VRAM quantized loading
-$env:THOUGHTBENCH_LOAD_MODE = "bf16"   # force normal BF16/FP16 loading
-```
-
-The command-line helpers also accept `--load-mode`:
-
-```powershell
-python chat.py --load-mode 4bit
-python generate.py --load-mode 4bit "Explain quicksort"
-```
-
-Monitor with `nvidia-smi`.
-
-## Build the desktop executable
-
-Put your icon PNG at:
-
-```text
-assets\app-icon.png
-```
-
-Then build from PowerShell:
-
-```powershell
-.\scripts\Build.ps1
-```
-
-The script installs the build dependencies from `requirements-build.txt`, converts
-`assets\app-icon.png` to `assets\app-icon.ico`, and runs PyInstaller with
-`Thoughtbench.spec`.
-
-The executable is written to:
-
-```text
-dist\Thoughtbench\Thoughtbench.exe
-```
-
-Useful build options:
-
-```powershell
-.\scripts\Build.ps1 -Clean        # remove build/dist first
-.\scripts\Build.ps1 -SkipInstall  # reuse already installed build deps
-```
-
-When replacing the app icon, use a clean rebuild so both the embedded executable
-icon and the runtime Tk window icon are refreshed:
-
-```powershell
-.\scripts\Build.ps1 -Clean
-.\scripts\Install-ToPrograms.ps1 -Replace
-```
-
-Windows Explorer and taskbar shortcuts may keep showing the previous icon from
-the shell icon cache. If the rebuilt `dist\Thoughtbench\Thoughtbench.exe` has the
-new icon but an installed shortcut still looks old, unpin and repin the app, or
-restart Explorer/sign out and back in.
-
-Install the built app under the current user's local programs folder:
-
-```powershell
-.\scripts\Install-ToPrograms.ps1
-```
-
-By default this installs to:
-
-```text
-%LOCALAPPDATA%\Programs\Thoughtbench
-```
-
-Earlier versions of this script hardcoded `E:\Programs` as the default install
-root. The script is now computer-agnostic, so `E:\Programs` is only used when you
-ask for it explicitly.
-
-Choose a custom install location when needed:
-
-```powershell
-.\scripts\Install-ToPrograms.ps1 -InstallRoot "E:\Programs"
-```
-
-That installs to:
-
-```text
-E:\Programs\Thoughtbench
-```
-
-Or install to an exact target folder:
-
-```powershell
-.\scripts\Install-ToPrograms.ps1 -InstallPath "D:\Tools\Thoughtbench"
-```
-
-Replace an existing installed copy:
-
-```powershell
-.\scripts\Install-ToPrograms.ps1 -Replace
-```
-
-Replace an existing copy in a custom location:
-
-```powershell
-.\scripts\Install-ToPrograms.ps1 -InstallRoot "E:\Programs" -Replace
-```
-
-The executable does not bundle model weights. On first launch it uses
-the same Hugging Face cache/download flow as the Python app.
-
-### Why the build is large
-
-The PyInstaller build is expected to be large. Even without bundling model
-weights, the app has to include a Python runtime plus ML dependencies such as
-PyTorch, Transformers, Accelerate, Tokenizers, SentencePiece, and CUDA/PyTorch
-support libraries.
-
-Most of the size is in:
-
-```text
-dist\Thoughtbench\_internal\
-```
-
-This project intentionally uses PyInstaller's one-folder layout:
-
-```text
-dist\Thoughtbench\Thoughtbench.exe
-dist\Thoughtbench\_internal\
-```
-
-Avoid `--onefile` for this app unless there is a specific reason. It would still
-be large, and startup is usually slower because the bundled files have to be
-unpacked before launch.
-
-For daily use on your own machine, running from the virtual environment can be
-lighter and easier to update:
-
-```powershell
-.\.venv\Scripts\python.exe app.py
-```
-
-Use the PyInstaller build when you want a self-contained app folder that can be
-installed under your local programs folder or another explicit `-InstallRoot`.
+Drag `dist/Thoughtbench.app` to `/Applications` if you want to install it.
 
 ## Diagnostics
 
 Use `Actions` > `Show Diagnostics` to show or hide captured stdout/stderr output.
 Diagnostics are captured even while the pane is hidden and are saved beside the
-current profile's chat logs:
-
-```text
-.thoughtbench\profiles\Default\diagnostics_YYYYMMDD_HHMMSS.log
-```
+current profile's chat logs.
