@@ -478,7 +478,6 @@ class PersistenceMixin:
 
         for candidate in (
             Path.home() / APP_FOLDER_NAME,
-            Path.cwd() / APP_FOLDER_NAME,
             *legacy_profile_roots(),
         ):
             if candidate.exists() and candidate.is_dir():
