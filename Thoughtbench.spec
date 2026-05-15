@@ -71,6 +71,8 @@ exe = EXE(
     icon="assets/app-icon.ico",
 )
 
+import sys as _sys
+
 coll = COLLECT(
     exe,
     a.binaries,
@@ -81,3 +83,17 @@ coll = COLLECT(
     upx_exclude=[],
     name="Thoughtbench",
 )
+
+if _sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name="Thoughtbench.app",
+        icon="assets/app-icon.icns",
+        bundle_identifier="com.thoughtbench.app",
+        info_plist={
+            "CFBundleDisplayName": "Thoughtbench",
+            "CFBundleShortVersionString": "1.0.0",
+            "NSHighResolutionCapable": True,
+            "NSRequiresAquaSystemAppearance": False,
+        },
+    )
