@@ -75,6 +75,49 @@ new documentation and examples use `Setup-Thoughtbench.ps1`.
 The assistant cannot install NVIDIA drivers or install Python globally. It will
 tell you when one of those manual steps is required.
 
+## Quick macOS setup (Apple Silicon)
+
+If you are on macOS with Apple Silicon (for example M-series chips), use the
+macOS setup path. It uses a local pyenv Python 3.12 environment and installs
+CPU/MPS-friendly dependencies instead of CUDA wheels.
+
+Install the helper dependencies once:
+
+```bash
+brew install pyenv tcl-tk openssl@3 readline sqlite3 xz zlib
+```
+
+Install Python 3.12.13 in pyenv (if needed):
+
+```bash
+PYTHON_CONFIGURE_OPTS="--enable-framework" pyenv install -s 3.12.13
+```
+
+Run the setup script:
+
+```bash
+bash ./scripts/Setup-Thoughtbench-macos.sh
+```
+
+Check-only mode:
+
+```bash
+bash ./scripts/Setup-Thoughtbench-macos.sh --check-only
+```
+
+Pre-download a model:
+
+```bash
+bash ./scripts/Setup-Thoughtbench-macos.sh --pre-download-model
+bash ./scripts/Setup-Thoughtbench-macos.sh --pre-download-model --model-id Qwen/Qwen3-0.6B
+```
+
+Launch after setup:
+
+```bash
+bash ./scripts/Setup-Thoughtbench-macos.sh --launch
+```
+
 ## Hugging Face model location
 
 The model files are large and are downloaded by Hugging Face into its
@@ -201,6 +244,18 @@ Custom install location:
 
 ```powershell
 .\scripts\Install-ToPrograms.ps1 -InstallRoot "D:\Programs" -Replace
+```
+
+Build a macOS desktop bundle from source:
+
+```bash
+bash ./scripts/Build-macos.sh --clean
+```
+
+Run the built app on macOS:
+
+```bash
+./dist/Thoughtbench/Thoughtbench
 ```
 
 ## Usage

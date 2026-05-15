@@ -1,0 +1,13 @@
+--extra-index-url https://pypi.org/simple
+
+torch
+torchvision
+torchaudio
+transformers
+accelerate
+sentencepiece
+sv_ttk
+markdown-it-py
+psutil
+tqdm
+huggingface_hub
