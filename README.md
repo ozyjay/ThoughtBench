@@ -164,11 +164,12 @@ Run from source:
 python app.py
 ```
 
-On first launch, the app asks where to create `.thoughtbench`. That folder is the
-first Behaviour Profile. A Behaviour Profile stores its own saved Assistant
-Behaviour (`system_prompt.md`), prompt history, current conversation, chat logs,
-and diagnostics logs. The model weights are not stored in this repo; Hugging
-Face downloads and caches them on the machine.
+On first launch, the app creates a default Behaviour Profile under
+`.thoughtbench\profiles\Default`. The `.thoughtbench` folder is the profile
+container; each profile folder stores its own saved Assistant Behaviour
+(`system_prompt.md`), prompt history, current conversation, chat logs, and
+diagnostics logs. The model weights are not stored in this repo; Hugging Face
+downloads and caches them on the machine.
 
 Use the `Show Behaviour` toolbar button to show the Assistant Behaviour panel.
 Inside that panel, use the `Active profile` selector to switch profiles and the
@@ -179,7 +180,7 @@ profile's prompt and conversation.
 Assistant Behaviour history is saved beside the current profile's prompt:
 
 ```text
-.thoughtbench\system_prompt_history.json
+.thoughtbench\profiles\Default\system_prompt_history.json
 ```
 
 Use the prompt history selector in the desktop app to restore an earlier
@@ -189,7 +190,7 @@ redo shortcuts while you are editing it.
 The desktop app also saves the current profile's conversation in:
 
 ```text
-.thoughtbench\conversation.json
+.thoughtbench\profiles\Default\conversation.json
 ```
 
 When you reopen the app, the active profile's previous conversation is restored.
@@ -205,8 +206,9 @@ profile folders:
 ```
 
 Older installs that already used `%APPDATA%\TestGemma4\settings.json` or a
-single `.test.gemma4` profile folder are migrated by treating that existing
-state as the first active Behaviour Profile. No files need to be moved manually.
+single `.test.gemma4` profile folder are migrated into the active profile list.
+Root-level `.thoughtbench` profile files are moved into
+`.thoughtbench\profiles\Default`. No files need to be moved manually.
 
 If Git reports dubious ownership after cloning or moving the folder, trust the
 clone path for the current Windows user:
@@ -567,5 +569,5 @@ Diagnostics are captured even while the pane is hidden and are saved beside the
 current profile's chat logs:
 
 ```text
-.thoughtbench\diagnostics_YYYYMMDD_HHMMSS.log
+.thoughtbench\profiles\Default\diagnostics_YYYYMMDD_HHMMSS.log
 ```

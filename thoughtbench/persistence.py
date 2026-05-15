@@ -10,12 +10,16 @@ from tkinter import filedialog, messagebox, simpledialog
 from .config import (
     APP_NAME,
     APP_FOLDER_NAME,
+    CONVERSATION_FILE_NAME,
+    SYSTEM_PROMPT_FILE_NAME,
+    SYSTEM_PROMPT_HISTORY_FILE_NAME,
     SYSTEM_PROMPT_HISTORY_LIMIT,
     get_model_option,
     valid_model_id_or_default,
 )
 from .storage import (
     conversation_path,
+    default_profile_dir,
     default_profiles_root,
     legacy_profile_roots,
     profile_label,
@@ -29,6 +33,21 @@ from .storage import (
 def _is_valid_profile_dir(path: Path) -> bool:
     """Return True only if path is an existing directory that is not a Python package."""
     return path.exists() and path.is_dir() and not (path / "__init__.py").exists()
+
+
+def _has_profile_state(path: Path) -> bool:
+    if not path.exists() or not path.is_dir():
+        return False
+
+    profile_files = {
+        SYSTEM_PROMPT_FILE_NAME,
+        SYSTEM_PROMPT_HISTORY_FILE_NAME,
+        CONVERSATION_FILE_NAME,
+    }
+    if any((path / name).exists() for name in profile_files):
+        return True
+
+    return any(path.glob("gemma4_chat_*.md")) or any(path.glob("diagnostics_*.log"))
 
 
 class PersistenceMixin:
@@ -174,6 +193,40 @@ class PersistenceMixin:
                 return False
 
         return True
+
+    def _migrate_root_profile_to_default(
+        self,
+        root_profile: Path,
+        target_profile: Path,
+    ) -> Path | None:
+        if not _has_profile_state(root_profile) or target_profile.exists():
+            return target_profile if _is_valid_profile_dir(target_profile) else None
+
+        try:
+            target_profile.mkdir(parents=True, exist_ok=True)
+            for child in root_profile.iterdir():
+                if child.name == "profiles" or child.is_dir():
+                    continue
+                if child.name in {
+                    SYSTEM_PROMPT_FILE_NAME,
+                    SYSTEM_PROMPT_HISTORY_FILE_NAME,
+                    CONVERSATION_FILE_NAME,
+                } or child.name.startswith(("gemma4_chat_", "diagnostics_")):
+                    destination = target_profile / child.name
+                    if not destination.exists():
+                        child.replace(destination)
+        except OSError as exc:
+            messagebox.showerror(
+                "Behaviour Profile",
+                (
+                    "Could not migrate the existing root profile into the "
+                    f"default profile folder:\n{target_profile}\n\n{exc}"
+                ),
+                parent=self.root,
+            )
+            return None
+
+        return target_profile if _is_valid_profile_dir(target_profile) else None
 
     def _load_saved_system_prompt(self):
         saved_prompt = None
@@ -471,35 +524,62 @@ class PersistenceMixin:
         self.root.after_idle(lambda: self.chat_display.see(tk.END))
 
     def _resolve_log_dir(self) -> Path | None:
+        root_profile = Path.home() / APP_FOLDER_NAME
+        default_dir = default_profile_dir()
+
         active_profile = self._read_active_profile_dir()
         if active_profile:
+            if active_profile.resolve() == root_profile.resolve():
+                migrated_profile = self._migrate_root_profile_to_default(
+                    root_profile,
+                    default_dir,
+                )
+                if migrated_profile:
+                    self._save_active_profile_dir(migrated_profile)
+                    return migrated_profile
+                if self._ensure_profile_dir(default_dir):
+                    self._save_active_profile_dir(default_dir)
+                    return default_dir
+                return None
             self._save_active_profile_dir(active_profile)
             return active_profile
 
         legacy_profile = self._read_configured_log_dir()
         if legacy_profile:
+            if legacy_profile.resolve() == root_profile.resolve():
+                migrated_profile = self._migrate_root_profile_to_default(
+                    root_profile,
+                    default_dir,
+                )
+                if migrated_profile:
+                    self._save_active_profile_dir(migrated_profile)
+                    return migrated_profile
+                if self._ensure_profile_dir(default_dir):
+                    self._save_active_profile_dir(default_dir)
+                    return default_dir
+                return None
             self._save_active_profile_dir(legacy_profile)
             return legacy_profile
 
+        migrated_profile = self._migrate_root_profile_to_default(
+            root_profile,
+            default_dir,
+        )
+        if migrated_profile:
+            self._save_active_profile_dir(migrated_profile)
+            return migrated_profile
+
         for candidate in (
-            Path.home() / APP_FOLDER_NAME,
+            default_dir,
             *legacy_profile_roots(),
         ):
             if _is_valid_profile_dir(candidate):
                 self._save_active_profile_dir(candidate)
                 return candidate
 
-        # First run: auto-create the default folder under home so the user
-        # never sees a dialog unless they explicitly change the profile location.
-        default_dir = Path.home() / APP_FOLDER_NAME
-        try:
-            default_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            messagebox.showerror(
-                "Behaviour Profile",
-                f"Could not create profile folder:\n{default_dir}\n\n{exc}",
-                parent=self.root,
-            )
+        # First run: auto-create the default profile inside the profile root so
+        # ~/.thoughtbench remains the container rather than becoming a profile.
+        if not self._ensure_profile_dir(default_dir):
             return None
 
         self._save_active_profile_dir(default_dir)
@@ -679,4 +759,3 @@ class PersistenceMixin:
             f"Assistant Behaviour:\n\n{self._get_system_prompt() or '(empty)'}"
         )
         self._append_log_entry("Generation Settings", settings)
-

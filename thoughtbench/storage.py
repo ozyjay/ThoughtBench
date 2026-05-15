@@ -14,6 +14,8 @@ from .config import (
     SYSTEM_PROMPT_HISTORY_FILE_NAME,
 )
 
+DEFAULT_PROFILE_NAME = "Default"
+
 
 def migrate_legacy_settings():
     if SETTINGS_FILE.exists() or not LEGACY_SETTINGS_FILE.exists():
@@ -49,6 +51,10 @@ def write_settings(settings: dict):
 
 def default_profiles_root() -> Path:
     return Path.home() / APP_FOLDER_NAME / "profiles"
+
+
+def default_profile_dir() -> Path:
+    return default_profiles_root() / DEFAULT_PROFILE_NAME
 
 
 def legacy_profile_roots() -> tuple[Path, ...]:
