@@ -112,6 +112,10 @@ class RuntimeMixin:
             self._token_usage_state = "loading"
             self._token_prompt_over_limit = False
             self._apply_token_usage_style()
+            # During startup and model switching, token counting can fire before
+            # model objects are ready. Keep retrying so the label does not get
+            # stuck on "loading".
+            self._token_update_job = self.root.after(1000, self._update_token_usage_async)
             return
 
         self._token_update_revision += 1
@@ -198,6 +202,9 @@ class RuntimeMixin:
         self._token_prompt_over_limit = False
         self._apply_token_usage_style()
         self._capture_diagnostic(f"Token count unavailable: {error}\n", "diagnostic_meta")
+        # Retry in case this was a transient tokenizer/config race.
+        if getattr(self, "_token_update_job", None) is None:
+            self._token_update_job = self.root.after(2000, self._update_token_usage_async)
 
     def _refresh_send_button_state(self):
         self._refresh_generation_slider_state()
