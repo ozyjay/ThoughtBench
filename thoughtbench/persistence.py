@@ -26,6 +26,11 @@ from .storage import (
 )
 
 
+def _is_valid_profile_dir(path: Path) -> bool:
+    """Return True only if path is an existing directory that is not a Python package."""
+    return path.exists() and path.is_dir() and not (path / "__init__.py").exists()
+
+
 class PersistenceMixin:
     def _setup_logging(self):
         self.log_dir = self._resolve_log_dir()
@@ -73,7 +78,7 @@ class PersistenceMixin:
             return None
 
         path = Path(raw_path).expanduser()
-        return path if path.exists() and path.is_dir() else None
+        return path if _is_valid_profile_dir(path) else None
 
     def _read_recent_profile_dirs(self) -> list[Path]:
         settings = self._read_settings()
@@ -480,7 +485,7 @@ class PersistenceMixin:
             Path.home() / APP_FOLDER_NAME,
             *legacy_profile_roots(),
         ):
-            if candidate.exists() and candidate.is_dir():
+            if _is_valid_profile_dir(candidate):
                 self._save_active_profile_dir(candidate)
                 return candidate
 
