@@ -119,7 +119,7 @@ def build_model_load_kwargs(mode: str | None = None) -> tuple[dict, ModelLoadInf
         detail = "4-bit low-VRAM load"
     else:
         kwargs["device_map"] = "auto"
-        kwargs["torch_dtype"] = dtype
+        kwargs["dtype"] = dtype
         detail = "BF16/FP16 load"
 
     if total_vram_gb is not None:
