@@ -484,32 +484,21 @@ class PersistenceMixin:
                 self._save_active_profile_dir(candidate)
                 return candidate
 
-        parent = filedialog.askdirectory(
-            parent=self.root,
-            title=f"Choose where to create {APP_FOLDER_NAME}",
-            mustexist=True,
-        )
-        if not parent:
-            messagebox.showwarning(
-                "Behaviour Profile",
-                "No profile folder was selected. Conversation logging is disabled for this session.",
-                parent=self.root,
-            )
-            return None
-
-        log_dir = Path(parent) / APP_FOLDER_NAME
+        # First run: auto-create the default folder under home so the user
+        # never sees a dialog unless they explicitly change the profile location.
+        default_dir = Path.home() / APP_FOLDER_NAME
         try:
-            log_dir.mkdir(parents=True, exist_ok=True)
+            default_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             messagebox.showerror(
                 "Behaviour Profile",
-                f"Could not create profile folder:\n{log_dir}\n\n{exc}",
+                f"Could not create profile folder:\n{default_dir}\n\n{exc}",
                 parent=self.root,
             )
             return None
 
-        self._save_active_profile_dir(log_dir)
-        return log_dir
+        self._save_active_profile_dir(default_dir)
+        return default_dir
 
     def _read_configured_log_dir(self) -> Path | None:
         raw_path = self._read_settings().get("log_dir")
