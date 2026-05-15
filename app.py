@@ -1,5 +1,8 @@
 """Desktop chat UI entrypoint for Thoughtbench."""
 
+import multiprocessing
+multiprocessing.freeze_support()  # must be first — prevents re-launching the UI in spawned worker processes (macOS)
+
 import tkinter as tk
 from tkinter import ttk
 
