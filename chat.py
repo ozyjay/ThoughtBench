@@ -55,9 +55,9 @@ def main():
     )
     parser.add_argument(
         "--load-mode",
-        choices=("auto", "bf16", "4bit"),
+        choices=("auto", "bf16"),
         default=None,
-        help="Model loading mode. auto uses 4-bit on GPUs below 12 GB VRAM.",
+        help="Model loading mode. auto uses MPS on Apple Silicon when available.",
     )
     args = parser.parse_args()
 

@@ -2,8 +2,8 @@
 
 Run local thinking-capable **Gemma 4** and **Qwen3** models in a Tk desktop chat app.
 
-This branch is focused on macOS, especially Apple Silicon with PyTorch MPS. It no
-longer carries the Windows CUDA setup path from the main branch.
+This branch is focused on macOS, especially Apple Silicon with PyTorch MPS. It
+omits the alternate platform setup path from the main branch.
 
 ## Quick macOS Setup
 
@@ -128,9 +128,6 @@ mode if needed:
 THOUGHTBENCH_LOAD_MODE=auto ./.venv/bin/python app.py
 THOUGHTBENCH_LOAD_MODE=bf16 ./.venv/bin/python app.py
 ```
-
-The `4bit` load mode is mainly useful on CUDA systems and may not be useful on
-this macOS-focused branch.
 
 ## Build The macOS App
 

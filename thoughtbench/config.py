@@ -1,17 +1,10 @@
 """Application constants and theme palettes."""
-
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 
 def _settings_dir() -> Path:
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Thoughtbench"
-    if sys.platform == "win32":
-        return Path.home() / "AppData" / "Roaming" / "Thoughtbench"
-    # Linux / other
-    return Path.home() / ".config" / "Thoughtbench"
+    return Path.home() / "Library" / "Application Support" / "Thoughtbench"
 
 
 @dataclass(frozen=True)
@@ -73,7 +66,7 @@ MODEL_CATALOG: tuple[ModelOption, ...] = (
         display_name="Qwen3 1.7B",
         context_length="32K tokens",
         notes="Small practical Qwen3 model for local thinking/non-thinking comparisons.",
-        vram_warning="Expected to be comfortable on most CUDA systems supported by this app.",
+        vram_warning="Expected to be comfortable on many Apple Silicon systems supported by this branch.",
         family="qwen",
         loader_kind="tokenizer",
         thinking_parser="qwen_think_tags",
@@ -107,8 +100,6 @@ SYSTEM_PROMPT_HISTORY_LIMIT = 50
 CONVERSATION_FILE_NAME = "conversation.json"
 SETTINGS_DIR = _settings_dir()
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
-LEGACY_SETTINGS_DIR = Path.home() / "AppData" / "Roaming" / "TestGemma4"
-LEGACY_SETTINGS_FILE = LEGACY_SETTINGS_DIR / "settings.json"
 
 
 def get_model_option(model_id: str | None) -> ModelOption:

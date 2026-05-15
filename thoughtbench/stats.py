@@ -10,21 +10,6 @@ class StatsMonitor:
         import psutil
 
         self._psutil = psutil
-        self._pynvml = None
-        self._gpu_handle = None
-        try:
-            import pynvml
-
-            pynvml.nvmlInit()
-            self._pynvml = pynvml
-        except Exception:
-            self._pynvml = None
-
-        if self._pynvml:
-            try:
-                self._gpu_handle = self._pynvml.nvmlDeviceGetHandleByIndex(0)
-            except Exception:
-                pass
         # Prime cpu_percent so the first real call returns meaningful data
         self._psutil.cpu_percent(interval=None)
 
@@ -34,21 +19,6 @@ class StatsMonitor:
         mem = self._psutil.virtual_memory()
         parts.append(f"CPU: {cpu:.0f}%")
         parts.append(f"RAM: {mem.used / 1073741824:.1f}/{mem.total / 1073741824:.1f} GB")
-
-        if self._gpu_handle and self._pynvml:
-            try:
-                mi = self._pynvml.nvmlDeviceGetMemoryInfo(self._gpu_handle)
-                util = self._pynvml.nvmlDeviceGetUtilizationRates(self._gpu_handle)
-                temp = self._pynvml.nvmlDeviceGetTemperature(
-                    self._gpu_handle, self._pynvml.NVML_TEMPERATURE_GPU
-                )
-                parts.append(
-                    f"GPU: {mi.used / 1073741824:.1f}/{mi.total / 1073741824:.1f} GB"
-                )
-                parts.append(f"GPU Util: {util.gpu}%")
-                parts.append(f"Temp: {temp}°C")
-            except Exception:
-                parts.append("GPU: N/A")
 
         return "  |  ".join(parts)
 

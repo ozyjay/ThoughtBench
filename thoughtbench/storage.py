@@ -7,7 +7,6 @@ from .config import (
     CONVERSATION_FILE_NAME,
     APP_FOLDER_NAME,
     LEGACY_APP_FOLDER_NAME,
-    LEGACY_SETTINGS_FILE,
     SETTINGS_DIR,
     SETTINGS_FILE,
     SYSTEM_PROMPT_FILE_NAME,
@@ -17,22 +16,7 @@ from .config import (
 DEFAULT_PROFILE_NAME = "Default"
 
 
-def migrate_legacy_settings():
-    if SETTINGS_FILE.exists() or not LEGACY_SETTINGS_FILE.exists():
-        return
-
-    try:
-        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
-        SETTINGS_FILE.write_text(
-            LEGACY_SETTINGS_FILE.read_text(encoding="utf-8"),
-            encoding="utf-8",
-        )
-    except OSError:
-        pass
-
-
 def read_settings() -> dict:
-    migrate_legacy_settings()
     try:
         settings = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
