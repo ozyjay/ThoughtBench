@@ -289,36 +289,7 @@ class RuntimeMixin:
                     model_option=model_option,
                 )
 
-                def _done():
-                    self.active_model_option = model_option
-                    self.loading_progress.stop()
-                    self.loading_progress.configure(mode="determinate")
-                    self.progress_var.set(100)
-                    self._stop_elapsed_timer()
-                    self._hide_loading_screen()
-                    self.progress_var.set(0)
-                    self._schedule_token_usage_update()
-                    if self._pending_send:
-                        self._pending_send = False
-                        self.status_var.set(
-                            f"{model_option.display_name} loaded ({load_info.detail}). Sending queued message..."
-                        )
-                        self._start_generate()
-                    else:
-                        self.status_var.set(
-                            f"{model_option.display_name} loaded ({load_info.detail}). Ready to chat."
-                        )
-                        self._refresh_send_button_state()
-                    self._append_log_entry(
-                        "System",
-                        (
-                            f"Model loaded: {model_option.display_name} "
-                            f"(`{model_option.model_id}`) with {load_info.detail}. "
-                            "Type a message and press Send."
-                        ),
-                    )
-
-                self.root.after(0, _done)
+                self.root.after(0, lambda: self._finish_model_load(model_option, load_info))
 
             except Exception as e:
                 traceback.print_exc(file=sys.stderr)
@@ -341,6 +312,49 @@ class RuntimeMixin:
                 self.root.after(0, _show_load_error)
 
         threading.Thread(target=_load, daemon=True).start()
+
+    def _finish_model_load(self, model_option, load_info):
+        self.active_model_option = model_option
+        self.loading_progress.stop()
+        self.loading_progress.configure(mode="determinate")
+        self.progress_var.set(100)
+        self._stop_elapsed_timer()
+        self._hide_loading_screen()
+        self.progress_var.set(0)
+        self._schedule_token_usage_update()
+        load_warning = self._model_load_warning(load_info)
+        if load_warning:
+            self._append_chat("System: ", "system_msg")
+            self._append_chat(f"{load_warning}\n\n", "system_msg")
+
+        if self._pending_send:
+            self._pending_send = False
+            self.status_var.set(
+                f"{model_option.display_name} loaded ({load_info.detail}). Sending queued message..."
+            )
+            self._refresh_send_button_state()
+            self.root.after_idle(self._start_generate)
+        else:
+            self.status_var.set(
+                f"{model_option.display_name} loaded ({load_info.detail}). Ready to chat."
+            )
+            self._refresh_send_button_state()
+
+        self._append_log_entry(
+            "System",
+            (
+                f"Model loaded: {model_option.display_name} "
+                f"(`{model_option.model_id}`) with {load_info.detail}. "
+                f"{load_warning or 'Type a message and press Send.'}"
+            ),
+        )
+
+    @staticmethod
+    def _model_load_warning(load_info) -> str:
+        detail = str(getattr(load_info, "detail", ""))
+        if "CPU" in detail:
+            return "Model is running on CPU because PyTorch MPS is unavailable. Responses may be slow."
+        return ""
 
     # ── Input handling ──────────────────────────────────────────────────
 
@@ -491,7 +505,16 @@ class RuntimeMixin:
                 add_generation_prompt=True,
                 enable_thinking=enable_thinking,
             )
-            inputs = self.processor(text=text, return_tensors="pt").to(model_input_device(self.model))
+            input_device = model_input_device(self.model)
+            self._capture_diagnostic(
+                (
+                    f"Generation started: model={model_option.model_id}, "
+                    f"device={input_device}, thinking={'on' if enable_thinking else 'off'}, "
+                    f"max_tokens={self.max_tokens_var.get()}\n"
+                ),
+                "diagnostic_meta",
+            )
+            inputs = self.processor(text=text, return_tensors="pt").to(input_device)
 
             streamer = TextIteratorStreamer(
                 self.processor.tokenizer,
@@ -518,6 +541,10 @@ class RuntimeMixin:
                     self.model.generate(**gen_kwargs)
                 except Exception as exc:
                     gen_error.append(exc)
+                    self._capture_diagnostic(
+                        f"Generation worker failed: {exc}\n",
+                        "diagnostic_meta",
+                    )
                     streamer.end()  # unblock the iterator
 
             threading.Thread(target=_run_generate, daemon=True).start()
@@ -784,4 +811,3 @@ class RuntimeMixin:
         self._restore_standard_streams()
         self._close_diagnostics_log()
         self.root.destroy()
-

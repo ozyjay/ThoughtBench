@@ -76,6 +76,9 @@ if [[ $CHECK_ONLY -eq 1 ]]; then
   "$VENV_PY" --version
   "$VENV_PY" -c "import tkinter; print('tkinter=ok')"
   if "$VENV_PY" -c "import torch; print('torch=ok'); print('mps=' + str(torch.backends.mps.is_available()))"; then
+    if ! "$VENV_PY" -c "import torch; raise SystemExit(0 if torch.backends.mps.is_available() else 1)"; then
+      echo "warning=MPS unavailable; Thoughtbench will fall back to CPU and generation may be slow"
+    fi
     :
   else
     echo "torch=missing (run setup without --check-only to install dependencies)"
@@ -85,6 +88,10 @@ fi
 
 "$VENV_PY" -m pip install --upgrade pip
 "$VENV_PY" -m pip install -r requirements-macos.txt
+
+if ! "$VENV_PY" -c "import torch; raise SystemExit(0 if torch.backends.mps.is_available() else 1)"; then
+  echo "Warning: PyTorch MPS is unavailable. Thoughtbench will fall back to CPU and generation may be slow."
+fi
 
 if [[ $PRE_DOWNLOAD -eq 1 ]]; then
   "$VENV_PY" -c "from huggingface_hub import snapshot_download; snapshot_download('$MODEL_ID'); print('Downloaded or found cached model: $MODEL_ID')"

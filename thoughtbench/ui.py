@@ -1271,11 +1271,20 @@ class ThoughtbenchApp(
             return
 
         try:
-            self.chat_pane.remove(self.loading_frame)
+            if str(self.loading_frame) in set(self.chat_pane.panes()):
+                self.chat_pane.forget(self.loading_frame)
         except tk.TclError:
             pass
-        self.chat_pane.add(self.main_chat_frame, weight=3)
+        try:
+            if str(self.main_chat_frame) not in set(self.chat_pane.panes()):
+                self.chat_pane.add(self.main_chat_frame, weight=3)
+        except tk.TclError:
+            pass
         self._loading_screen_visible = False
+        try:
+            self.root.update_idletasks()
+        except tk.TclError:
+            pass
 
     def _model_choice_labels(self) -> list[str]:
         self._model_label_to_id = {

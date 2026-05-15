@@ -67,7 +67,7 @@ def _preferred_dtype() -> torch.dtype:
     # Apple Silicon MPS: bfloat16 supported since PyTorch 2.x
     if torch.backends.mps.is_available():
         return torch.bfloat16
-    return torch.float16
+    return torch.float32
 
 
 def choose_load_mode(requested: str | None = None) -> tuple[LoadMode, torch.dtype, float | None]:
@@ -93,7 +93,7 @@ def build_model_load_kwargs(mode: str | None = None) -> tuple[dict, ModelLoadInf
     else:
         kwargs["device_map"] = "auto"
         kwargs["dtype"] = dtype
-        detail = "BF16/FP16 load"
+        detail = "CPU float32 load"
 
     return kwargs, ModelLoadInfo(
         mode=selected_mode,
