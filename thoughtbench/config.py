@@ -99,7 +99,7 @@ MODEL_CATALOG: tuple[ModelOption, ...] = (
         thinking_parser="qwen_think_tags",
     ),
 )
-APP_FOLDER_NAME = "thoughtbench"
+APP_FOLDER_NAME = ".thoughtbench"
 LEGACY_APP_FOLDER_NAME = ".test.gemma4"
 SYSTEM_PROMPT_FILE_NAME = "system_prompt.md"
 SYSTEM_PROMPT_HISTORY_FILE_NAME = "system_prompt_history.json"
