@@ -81,6 +81,9 @@ def _preferred_dtype() -> torch.dtype:
             return torch.float16
     if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
         return torch.bfloat16
+    # Apple Silicon MPS: bfloat16 supported since PyTorch 2.x
+    if torch.backends.mps.is_available():
+        return torch.bfloat16
     return torch.float16
 
 
@@ -116,8 +119,13 @@ def build_model_load_kwargs(mode: str | None = None) -> tuple[dict, ModelLoadInf
             bnb_4bit_use_double_quant=True,
         )
         kwargs["device_map"] = {"": 0} if torch.cuda.is_available() else "auto"
-        detail = "4-bit low-VRAM load"
-    else:
+        detail = "4-bit low-VRAM load"    elif torch.backends.mps.is_available() and not torch.cuda.is_available():
+        # Apple Silicon: route entire model to MPS.
+        # device_map="auto" with accelerate resolves to CPU on macOS;
+        # explicitly targeting mps gives Metal-backed inference.
+        kwargs["device_map"] = {"" : "mps"}
+        kwargs["dtype"] = dtype
+        detail = "MPS (Apple Silicon) load"    else:
         kwargs["device_map"] = "auto"
         kwargs["dtype"] = dtype
         detail = "BF16/FP16 load"
@@ -170,4 +178,6 @@ def model_input_device(model) -> torch.device:
                 return torch.device(device)
             if isinstance(device, int):
                 return torch.device(f"cuda:{device}")
+    if torch.backends.mps.is_available() and not torch.cuda.is_available():
+        return torch.device("mps")
     return getattr(model, "device", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
