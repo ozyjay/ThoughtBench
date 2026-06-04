@@ -215,19 +215,20 @@ Run the C# setup check:
 .\scripts\Setup-Thoughtbench-CSharp.ps1 -CheckOnly
 ```
 
-To download that smoke-test model from Hugging Face into the same location:
+To download the Phi-3 Mini ONNX GenAI model from Hugging Face into the local
+model area:
 
 ```powershell
 hf download microsoft/Phi-3-mini-4k-instruct-onnx `
   --include "cuda/cuda-int4-rtn-block-32/*" `
-  --local-dir D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\onnx-smoke
+  --local-dir D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\phi-3-mini-4k-instruct-onnx
 ```
 
 The WPF app loads models with its in-app folder picker. Use **Browse** and select
 the inner ONNX GenAI folder that contains `genai_config.json`, for example:
 
 ```text
-D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\onnx-smoke\cuda\cuda-int4-rtn-block-32
+D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\phi-3-mini-4k-instruct-onnx\cuda\cuda-int4-rtn-block-32
 ```
 
 Launch the WPF app:
@@ -239,8 +240,8 @@ Launch the WPF app:
 Or run the CLI by passing a model folder explicitly:
 
 ```powershell
-dotnet run --project .\src\Thoughtbench.Cli\Thoughtbench.Cli.csproj -- generate "Write a haiku" --model-path D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\onnx-smoke\cuda\cuda-int4-rtn-block-32
-dotnet run --project .\src\Thoughtbench.Cli\Thoughtbench.Cli.csproj -- chat --model-path D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\onnx-smoke\cuda\cuda-int4-rtn-block-32
+dotnet run --project .\src\Thoughtbench.Cli\Thoughtbench.Cli.csproj -- generate "Write a haiku" --model-path D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\phi-3-mini-4k-instruct-onnx\cuda\cuda-int4-rtn-block-32
+dotnet run --project .\src\Thoughtbench.Cli\Thoughtbench.Cli.csproj -- chat --model-path D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\phi-3-mini-4k-instruct-onnx\cuda\cuda-int4-rtn-block-32
 ```
 
 The first C# version expects a user-provided ONNX Runtime GenAI model folder.
@@ -380,7 +381,7 @@ curated choices are:
 | Gemma | `google/gemma-4-E4B-it` | Larger edge model. |
 | Gemma | `google/gemma-4-26B-A4B-it` | Larger MoE model. |
 | Gemma | `google/gemma-4-31B-it` | Largest curated Gemma option. |
-| Qwen | `Qwen/Qwen3-0.6B` | Smallest Qwen3 smoke-test model. |
+| Qwen | `Qwen/Qwen3-0.6B` | Smallest Qwen3 model in this catalog. |
 | Qwen | `Qwen/Qwen3-1.7B` | Small practical Qwen3 option. |
 | Qwen | `Qwen/Qwen3-4B` | Balanced Qwen3 option. |
 | Qwen | `Qwen/Qwen3-8B` | Strongest practical Qwen3 option in this catalog. |
