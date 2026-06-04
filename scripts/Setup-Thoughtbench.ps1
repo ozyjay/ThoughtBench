@@ -22,6 +22,9 @@ $NvidiaDriverUrl = "https://www.nvidia.com/Download/index.aspx"
 $MinimumVramGb = 8
 $RecommendedVramGb = 12
 $RecommendedDiskGb = 40
+$RequiredModelDrive = "D:"
+$DefaultHuggingFaceHome = "D:\LLMProjects\HuggingFace"
+$DefaultHuggingFaceHubCache = "D:\LLMProjects\HuggingFace\Hub"
 
 $script:Checks = @()
 $script:HardBlocker = $false
@@ -335,6 +338,60 @@ function Test-IsWindows {
     return [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
 }
 
+function Test-PathOnRequiredModelDrive {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    return $fullPath.StartsWith("$RequiredModelDrive\", [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Ensure-HuggingFaceCache {
+    param([switch]$Apply)
+
+    $hubCache = $env:HF_HUB_CACHE
+    if ([string]::IsNullOrWhiteSpace($hubCache)) {
+        $hubCache = $env:HUGGINGFACE_HUB_CACHE
+    }
+
+    if ([string]::IsNullOrWhiteSpace($hubCache)) {
+        $hubCache = if ([string]::IsNullOrWhiteSpace($env:HF_HOME)) {
+            $DefaultHuggingFaceHubCache
+        } else {
+            Join-Path $env:HF_HOME "hub"
+        }
+    }
+
+    if (-not (Test-PathOnRequiredModelDrive -Path $hubCache)) {
+        Add-Check -Name "Hugging Face cache" -Detail "HF_HUB_CACHE=$hubCache" -Status "ACTION NEEDED" -SetupNeeded -NextStep "Set HF_HUB_CACHE to $DefaultHuggingFaceHubCache so model files stay on $RequiredModelDrive."
+        return $false
+    }
+
+    if ([string]::IsNullOrWhiteSpace($env:HF_HOME)) {
+        if ($Apply) {
+            [Environment]::SetEnvironmentVariable("HF_HOME", $DefaultHuggingFaceHome, "User")
+            $env:HF_HOME = $DefaultHuggingFaceHome
+        } else {
+            Add-Check -Name "Hugging Face home" -Detail "HF_HOME is not set" -Status "ACTION NEEDED" -SetupNeeded -NextStep "Set HF_HOME to $DefaultHuggingFaceHome so Hugging Face metadata also stays on $RequiredModelDrive."
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:HF_HOME) -and -not (Test-PathOnRequiredModelDrive -Path $env:HF_HOME)) {
+        Add-Check -Name "Hugging Face home" -Detail "HF_HOME=$env:HF_HOME" -Status "ACTION NEEDED" -SetupNeeded -NextStep "Set HF_HOME to $DefaultHuggingFaceHome so Hugging Face metadata also stays on $RequiredModelDrive."
+        return $false
+    }
+
+    if ($Apply) {
+        $hfHome = if ([string]::IsNullOrWhiteSpace($env:HF_HOME)) { $DefaultHuggingFaceHome } else { $env:HF_HOME }
+        New-Item -ItemType Directory -Force -Path $hfHome | Out-Null
+        New-Item -ItemType Directory -Force -Path $hubCache | Out-Null
+        [Environment]::SetEnvironmentVariable("HF_HUB_CACHE", $hubCache, "User")
+        $env:HF_HUB_CACHE = $hubCache
+    }
+
+    Add-Check -Name "Hugging Face cache" -Detail "HF_HUB_CACHE=$hubCache" -Status "OK"
+    return $true
+}
+
 function Invoke-ModelDownload {
     param([Parameter(Mandatory = $true)][string]$PythonPath)
 
@@ -519,15 +576,19 @@ try {
         $venvHfCli = $legacyVenvHfCli
     }
 
+    $huggingFaceCacheOk = Ensure-HuggingFaceCache -Apply:(-not $CheckOnly)
+
     Add-HuggingFaceCliCheck -CliPath $venvHfCli
 
-    if ($PreDownloadModel -and -not $script:HardBlocker -and $torchOk) {
+    if ($PreDownloadModel -and -not $script:HardBlocker -and $torchOk -and $huggingFaceCacheOk) {
         $downloadExitCode = Invoke-ModelDownload -PythonPath $venvPython
         if ($downloadExitCode -eq 0) {
             Add-Check -Name "Model files" -Detail "downloaded or cached" -Status "OK"
         } else {
             Add-Check -Name "Model files" -Detail "download failed" -Status "ACTION NEEDED" -SetupNeeded -NextStep "Check $ModelUrl in a browser. If Hugging Face asks you to sign in, run .\.venv\Scripts\hf.exe auth login, then re-run with -PreDownloadModel."
         }
+    } elseif ($PreDownloadModel -and -not $huggingFaceCacheOk) {
+        Add-Check -Name "Model files" -Detail "cache path is not ready" -Status "PENDING" -SetupNeeded
     } elseif ($PreDownloadModel -and -not $torchOk) {
         Add-Check -Name "Model files" -Detail "not attempted" -Status "PENDING" -SetupNeeded
     }

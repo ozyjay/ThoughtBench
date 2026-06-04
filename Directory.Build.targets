@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <ThoughtbenchOnnxGenAiCudaNativePath>$(NuGetPackageRoot)microsoft.ml.onnxruntimegenai.cuda\0.13.2\runtimes\win-x64\native\</ThoughtbenchOnnxGenAiCudaNativePath>
+    <ThoughtbenchOnnxRuntimeGpuNativePath>$(NuGetPackageRoot)microsoft.ml.onnxruntime.gpu.windows\1.25.1\runtimes\win-x64\native\</ThoughtbenchOnnxRuntimeGpuNativePath>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT' and Exists('$(ThoughtbenchOnnxGenAiCudaNativePath)')">
+    <None Include="$(ThoughtbenchOnnxGenAiCudaNativePath)onnxruntime-genai.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="onnxruntime-genai.dll" />
+    <None Include="$(ThoughtbenchOnnxGenAiCudaNativePath)onnxruntime-genai-cuda.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="onnxruntime-genai-cuda.dll" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT' and Exists('$(ThoughtbenchOnnxRuntimeGpuNativePath)')">
+    <None Include="$(ThoughtbenchOnnxRuntimeGpuNativePath)onnxruntime.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="onnxruntime.dll" />
+    <None Include="$(ThoughtbenchOnnxRuntimeGpuNativePath)onnxruntime_providers_shared.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="onnxruntime_providers_shared.dll" />
+    <None Include="$(ThoughtbenchOnnxRuntimeGpuNativePath)onnxruntime_providers_cuda.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="onnxruntime_providers_cuda.dll" />
+    <None Include="$(ThoughtbenchOnnxRuntimeGpuNativePath)onnxruntime_providers_tensorrt.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="onnxruntime_providers_tensorrt.dll" />
+  </ItemGroup>
+</Project>

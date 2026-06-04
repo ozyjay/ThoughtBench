@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(ThoughtbenchTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>thoughtbench</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Thoughtbench.Core\Thoughtbench.Core.csproj" />
+    <ProjectReference Include="..\Thoughtbench.Onnx\Thoughtbench.Onnx.csproj" />
+  </ItemGroup>
+
+</Project>

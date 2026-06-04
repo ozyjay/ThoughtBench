@@ -135,11 +135,30 @@ substantially more for larger models, plus extra free space for Python packages
 and temporary download files. Smaller Qwen3 models can be much lighter. By
 default, the Hugging Face cache is usually under your Windows user profile.
 
-To store Hugging Face models on another drive, set `HF_HOME` before downloading
-the model:
+To keep Hugging Face models off the system drive, set the Hugging Face cache
+variables before downloading the model. This workspace keeps all model storage
+under `D:\LLMProjects\HuggingFace\Hub`:
 
 ```powershell
-[Environment]::SetEnvironmentVariable("HF_HOME", "E:\HuggingFace", "User")
+[Environment]::SetEnvironmentVariable("HF_HOME", "D:\LLMProjects\HuggingFace", "User")
+[Environment]::SetEnvironmentVariable("HF_HUB_CACHE", "D:\LLMProjects\HuggingFace\Hub", "User")
+```
+
+If you previously used `HUGGINGFACE_HUB_CACHE`, set `HF_HUB_CACHE` to the same
+folder. `HUGGINGFACE_HUB_CACHE` is the older name and no longer takes precedence
+over `HF_HUB_CACHE`.
+
+Hugging Face-managed downloads live in folders like:
+
+```text
+D:\LLMProjects\HuggingFace\Hub\models--google--gemma-4-E2B-it
+```
+
+Manual local model folders, such as ONNX Runtime GenAI exports used by the C#
+app, live under:
+
+```text
+D:\LLMProjects\HuggingFace\Hub\local\
 ```
 
 Close and reopen PowerShell after setting it, then run:
@@ -169,6 +188,71 @@ Run from source:
 
 ```powershell
 python app.py
+```
+
+## C# / ONNX CUDA implementation
+
+The `csharp-implementation` branch contains a parallel C# port of Thoughtbench.
+The Python app remains in place for comparison while the C# app reaches parity.
+
+The C# solution is:
+
+```text
+Thoughtbench.CSharp.sln
+src\Thoughtbench.App\       WPF desktop app
+src\Thoughtbench.Core\      profiles, knowledge retrieval, diagnostics, prompt logic
+src\Thoughtbench.Onnx\      ONNX Runtime GenAI CUDA backend
+src\Thoughtbench.Cli\       thoughtbench chat/generate CLI
+tests\Thoughtbench.Tests\   package-free C# test runner
+```
+
+This workspace targets `.NET 10`. Install the .NET 10 SDK and make sure it is
+available on `PATH` before building or launching the C# app.
+
+Run the C# setup check:
+
+```powershell
+.\scripts\Setup-Thoughtbench-CSharp.ps1 -CheckOnly
+```
+
+To download that smoke-test model from Hugging Face into the same location:
+
+```powershell
+hf download microsoft/Phi-3-mini-4k-instruct-onnx `
+  --include "cuda/cuda-int4-rtn-block-32/*" `
+  --local-dir D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\onnx-smoke
+```
+
+The WPF app loads models with its in-app folder picker. Use **Browse** and select
+the inner ONNX GenAI folder that contains `genai_config.json`, for example:
+
+```text
+D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\onnx-smoke\cuda\cuda-int4-rtn-block-32
+```
+
+Launch the WPF app:
+
+```powershell
+.\scripts\Setup-Thoughtbench-CSharp.ps1 -Launch
+```
+
+Or run the CLI by passing a model folder explicitly:
+
+```powershell
+dotnet run --project .\src\Thoughtbench.Cli\Thoughtbench.Cli.csproj -- generate "Write a haiku" --model-path D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\onnx-smoke\cuda\cuda-int4-rtn-block-32
+dotnet run --project .\src\Thoughtbench.Cli\Thoughtbench.Cli.csproj -- chat --model-path D:\LLMProjects\HuggingFace\Hub\local\Thoughtbench\onnx-smoke\cuda\cuda-int4-rtn-block-32
+```
+
+The first C# version expects a user-provided ONNX Runtime GenAI model folder.
+The former Gemma/Qwen Hugging Face catalog is intentionally deferred until
+converted ONNX artifacts are chosen and validated.
+
+Build and test:
+
+```powershell
+dotnet build .\Thoughtbench.CSharp.sln
+dotnet run --project .\tests\Thoughtbench.Tests\Thoughtbench.Tests.csproj
+.\scripts\Build-CSharp.ps1
 ```
 
 On first launch, the app asks where to create `.thoughtbench`. That folder is the

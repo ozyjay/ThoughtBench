@@ -1,5 +1,13 @@
 # TODO
 
+## C# / ONNX CUDA Migration
+
+- Validate a small ONNX Runtime GenAI smoke model on Windows/NVIDIA hardware.
+- Decide which Gemma/Qwen models should be converted or replaced in the C# catalog.
+- Expand the WPF shell toward full UI parity with the Python/Tk app.
+- Add installer shortcut support for `dist\csharp\app` after publish output is stable.
+- Remove Python code only after C# desktop, CLI, setup/build scripts, docs, and tests pass acceptance checks.
+
 ## Future: Hybrid Knowledge Retrieval
 
 Profile knowledge files and BM25 retrieval are implemented. The current system:
