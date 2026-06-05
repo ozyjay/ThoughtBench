@@ -83,4 +83,5 @@ touch dist/Thoughtbench.app
 
 echo
 echo "Build complete: dist/Thoughtbench.app"
-echo "Drag dist/Thoughtbench.app to /Applications to install."
+echo "Install to /Applications with:"
+echo "  bash ./scripts/Install-macos.sh"

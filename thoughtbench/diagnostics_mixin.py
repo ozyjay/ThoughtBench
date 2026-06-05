@@ -54,11 +54,27 @@ class DiagnosticsMixin:
 
         self._write_diagnostics_file(text, tag)
         self._diagnostics_queue.put((text, tag))
-        if self._diagnostics_flush_job is None:
-            try:
-                self._diagnostics_flush_job = self.root.after(50, self._flush_diagnostics)
-            except tk.TclError:
-                self._diagnostics_flush_job = None
+        self._schedule_diagnostics_flush()
+
+    def _schedule_diagnostics_flush(self):
+        if self._diagnostics_flush_job is not None:
+            return
+
+        post_ui_event = getattr(self, "_post_ui_event", None)
+        if callable(post_ui_event):
+            post_ui_event(self._ensure_diagnostics_flush_scheduled)
+            return
+
+        self._ensure_diagnostics_flush_scheduled()
+
+    def _ensure_diagnostics_flush_scheduled(self):
+        if self._diagnostics_flush_job is not None or getattr(self, "_closing", False):
+            return
+
+        try:
+            self._diagnostics_flush_job = self.root.after(50, self._flush_diagnostics)
+        except tk.TclError:
+            self._diagnostics_flush_job = None
 
     def _write_diagnostics_file(self, text: str, tag: str):
         if not self._diagnostics_log_handle:

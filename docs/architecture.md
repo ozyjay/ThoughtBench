@@ -143,7 +143,7 @@ Common verification commands:
 ```bash
 ./.venv/bin/python -m unittest discover
 ./.venv/bin/python -m compileall -f app.py chat.py generate.py thoughtbench tests
-bash -n scripts/Setup-Thoughtbench-macos.sh scripts/Build-macos.sh
+bash -n scripts/Setup-Thoughtbench-macos.sh scripts/Build-macos.sh scripts/Install-macos.sh
 git diff --check
 ```
 
