@@ -824,7 +824,8 @@ class ThoughtbenchApp(
             "Escape",
         }
         is_ctrl = bool(event.state & 0x4)
-        if is_ctrl and event.keysym.lower() in {"a", "c", "insert"}:
+        is_command = bool(event.state & 0x10)
+        if (is_ctrl or is_command) and event.keysym.lower() in {"a", "c", "insert"}:
             return None
         if event.keysym in allowed_keys:
             return None
