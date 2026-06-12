@@ -784,8 +784,14 @@ class ThoughtbenchApp(
         widget.bind("<Key>", self._block_readonly_edit)
         widget.bind("<<Paste>>", lambda _event: "break")
         widget.bind("<<Cut>>", lambda _event: "break")
+        widget.bind("<Control-c>", lambda _event, w=widget: self._copy_selected_readonly_text(w))
+        widget.bind("<Control-C>", lambda _event, w=widget: self._copy_selected_readonly_text(w))
+        widget.bind("<Command-c>", lambda _event, w=widget: self._copy_selected_readonly_text(w))
+        widget.bind("<Command-C>", lambda _event, w=widget: self._copy_selected_readonly_text(w))
         widget.bind("<Control-a>", lambda _event, w=widget: self._select_all_text(w))
         widget.bind("<Control-A>", lambda _event, w=widget: self._select_all_text(w))
+        widget.bind("<Command-a>", lambda _event, w=widget: self._select_all_text(w))
+        widget.bind("<Command-A>", lambda _event, w=widget: self._select_all_text(w))
         widget.bind("<ButtonPress-1>", lambda _event, w=widget: self._freeze_selection_updates(w), add="+")
         widget.bind("<B1-Motion>", lambda _event, w=widget: self._freeze_selection_updates(w), add="+")
         widget.bind("<ButtonRelease-1>", lambda _event, w=widget: self._release_selection_updates(w), add="+")
@@ -829,6 +835,17 @@ class ThoughtbenchApp(
             return None
         if event.keysym in allowed_keys:
             return None
+        return "break"
+
+    def _copy_selected_readonly_text(self, widget: tk.Text):
+        try:
+            text = widget.get(tk.SEL_FIRST, tk.SEL_LAST)
+        except tk.TclError:
+            return "break"
+        if not text:
+            return "break"
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
         return "break"
 
     def _select_all_text(self, widget: tk.Text):

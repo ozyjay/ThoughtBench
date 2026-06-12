@@ -8,7 +8,8 @@ fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_APP="$REPO_ROOT/dist/Thoughtbench.app"
-DEST_APP="/Applications/Thoughtbench.app"
+DEST_DIR="$HOME/Applications"
+DEST_APP="$DEST_DIR/Thoughtbench.app"
 
 if [[ ! -d "$SOURCE_APP" ]]; then
   echo "Missing app bundle: dist/Thoughtbench.app"
@@ -17,21 +18,11 @@ if [[ ! -d "$SOURCE_APP" ]]; then
   exit 1
 fi
 
-install_without_admin() {
+install_app() {
+  mkdir -p "$DEST_DIR"
   rm -rf "$DEST_APP"
   ditto "$SOURCE_APP" "$DEST_APP"
   touch "$DEST_APP"
-}
-
-install_with_admin() {
-  /usr/bin/osascript - "$SOURCE_APP" "$DEST_APP" <<'APPLESCRIPT'
-on run argv
-  set sourceApp to item 1 of argv
-  set destApp to item 2 of argv
-  set commandText to "rm -rf " & quoted form of destApp & " && ditto " & quoted form of sourceApp & " " & quoted form of destApp & " && touch " & quoted form of destApp
-  do shell script commandText with administrator privileges
-end run
-APPLESCRIPT
 }
 
 refresh_launch_services() {
@@ -41,17 +32,12 @@ refresh_launch_services() {
   fi
 }
 
-echo "Installing dist/Thoughtbench.app to /Applications/Thoughtbench.app..."
+echo "Installing dist/Thoughtbench.app to $DEST_APP..."
 
-if install_without_admin 2>/dev/null; then
-  :
-else
-  echo "Administrator permission is required to install to /Applications."
-  install_with_admin
-fi
+install_app
 
 refresh_launch_services
 
 echo "Installed: $DEST_APP"
 echo "Launch it from Finder, Spotlight, or with:"
-echo "  open /Applications/Thoughtbench.app"
+echo "  open \"$DEST_APP\""

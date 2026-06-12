@@ -144,7 +144,7 @@ The app bundle is written to:
 dist/Thoughtbench.app
 ```
 
-Install it to `/Applications` with:
+Install it to `~/Applications` with:
 
 ```bash
 bash ./scripts/Install-macos.sh

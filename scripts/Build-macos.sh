@@ -25,6 +25,39 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+if [[ $EUID -eq 0 ]]; then
+  echo "Do not run this build script with sudo." >&2
+  echo "Build artifacts in this repo should be owned by your user." >&2
+  echo "If dist is already root-owned, repair it with:" >&2
+  echo "  sudo chown -R \"$USER\" \"$REPO_ROOT/dist\" \"$REPO_ROOT/build\"" >&2
+  exit 1
+fi
+
+require_writable_build_output() {
+  local path="$1"
+  local candidate_dir
+
+  [[ -e "$path" ]] || return 0
+
+  if [[ -d "$path" ]]; then
+    while IFS= read -r candidate_dir; do
+      if [[ ! -w "$candidate_dir" ]]; then
+        echo "Build output is not writable: $candidate_dir" >&2
+        echo "This usually happens after running the build with sudo." >&2
+        echo "Repair ownership with:" >&2
+        echo "  sudo chown -R \"$USER\" \"$path\"" >&2
+        return 1
+      fi
+    done < <(find "$path" -type d -print 2>/dev/null)
+  elif [[ ! -w "$path" ]]; then
+    echo "Build output is not writable: $path" >&2
+    echo "This usually happens after running the build with sudo." >&2
+    echo "Repair ownership with:" >&2
+    echo "  sudo chown -R \"$USER\" \"$path\"" >&2
+    return 1
+  fi
+}
+
 VENV_PY="$REPO_ROOT/.venv/bin/python"
 if [[ ! -x "$VENV_PY" ]]; then
   echo "Missing .venv Python. Run mac setup first:"
@@ -33,6 +66,8 @@ if [[ ! -x "$VENV_PY" ]]; then
 fi
 
 if [[ $CLEAN -eq 1 ]]; then
+  require_writable_build_output build
+  require_writable_build_output dist
   rm -rf build dist
 fi
 
@@ -76,6 +111,8 @@ fi
 
 # Always remove previous bundle outputs so deleted assets do not linger in
 # incremental PyInstaller builds.
+require_writable_build_output dist/Thoughtbench.app
+require_writable_build_output dist/Thoughtbench
 rm -rf dist/Thoughtbench.app dist/Thoughtbench
 
 "$VENV_PY" -m PyInstaller --noconfirm Thoughtbench.spec
@@ -83,5 +120,5 @@ touch dist/Thoughtbench.app
 
 echo
 echo "Build complete: dist/Thoughtbench.app"
-echo "Install to /Applications with:"
+echo "Install to ~/Applications with:"
 echo "  bash ./scripts/Install-macos.sh"
